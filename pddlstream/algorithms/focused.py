@@ -75,7 +75,7 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
                   initial_complexity=0, complexity_step=1, max_complexity=INF,
                   max_skeletons=INF, search_sample_ratio=0, bind=True, max_failures=0,
                   unit_efforts=False, max_effort=INF, effort_weight=None, reorder=True,
-                  visualize=False, verbose=True, **search_kwargs):
+                  visualize=False, verbose=True, logpath = None, **search_kwargs):
     """
     Solves a PDDLStream problem by first planning with optimistic stream outputs and then querying streams
     :param problem: a PDDLStream problem
@@ -259,6 +259,10 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
     print('Summary: {}'.format(str_from_object(summary, ndigits=3))) # TODO: return the summary
 
     write_stream_statistics(externals, verbose)
+    if not(logpath is None):
+        print(f"Logging statistics to {logpath}")
+        store.write_to_json(logpath)
+
     return store.extract_solution()
 
 solve_focused = solve_abstract # TODO: deprecate solve_focused
@@ -293,7 +297,7 @@ def solve_binding(problem, fail_fast=False, **kwargs):
     return solve_abstract(problem, max_skeletons=None, search_sample_ratio=None,
                           bind=True, max_failures=max_failures, **kwargs)
 
-def solve_adaptive(problem, max_skeletons=INF, search_sample_ratio=1, **kwargs):
+def solve_adaptive(problem, max_skeletons=INF, search_sample_ratio=1, logpath = None, **kwargs):
     """
     Solves a PDDLStream problem by first planning with optimistic stream outputs and then querying streams
     :param problem: a PDDLStream problem
@@ -308,7 +312,7 @@ def solve_adaptive(problem, max_skeletons=INF, search_sample_ratio=1, **kwargs):
     #search_sample_ratio = clip(search_sample_ratio, lower=0) # + EPSILON
     #assert search_sample_ratio > 0
     return solve_abstract(problem, max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
-                          bind=None, max_failures=None, **kwargs)
+                          bind=None, max_failures=None, logpath = logpath, **kwargs)
 
 def solve_hierarchical(problem, **kwargs):
     """

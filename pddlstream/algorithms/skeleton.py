@@ -340,7 +340,7 @@ class SkeletonQueue(Sized):
         if readd is not False:
             self.push_binding(binding)
         # TODO: if readd == STANDBY
-        store.add_eva
+        self.store.change_evaluations(len(self.evaluations))
         return is_new
 
     def greedily_process(self):
@@ -427,7 +427,6 @@ class SkeletonQueue(Sized):
         # TODO: AssertionError: Could not find instantiation for numeric expression: dist
 
     def process(self, stream_plan, action_plan, cost, complexity_limit, max_time=0, accelerate=False):
-        print(len(self.evaluations))
         start_time = time.time()
         if is_plan(stream_plan):
             self.new_skeleton(stream_plan, action_plan, cost)
@@ -437,12 +436,10 @@ class SkeletonQueue(Sized):
             return INFEASIBLE
         if not self.queue:
             return FAILED
-        print(len(self.evaluations))
 
         # TODO: add and process
         self.timed_process(max_time=(max_time - elapsed_time(start_time)))
         self.process_complexity(complexity_limit)
         if accelerate:
            self.accelerate_best_bindings()
-        print(len(self.evaluations))
         return FAILED

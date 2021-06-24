@@ -16,7 +16,6 @@ from pddlstream.language.stream import StreamResult, Result
 from pddlstream.language.statistics import check_effort, compute_plan_effort
 from pddlstream.language.object import Object, OptimisticObject
 from pddlstream.utils import INF, safe_zip, get_mapping, implies, elapsed_time
-from pddlstream.algorithms.common import AttemptInfo
 
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
