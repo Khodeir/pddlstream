@@ -60,10 +60,10 @@ def optimistic_process_streams(evaluations, streams, complexity_limit=INF, store
     results = []
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
         results.extend(optimistic_process_instance(instantiator, instantiator.pop_stream()))
-        if store is not None:
-            store.change_results(len(results))
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
+    if store is not None:
+        store.change_results(len(results))
     return results, exhausted
 
 ##################################################

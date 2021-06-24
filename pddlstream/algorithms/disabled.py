@@ -57,8 +57,9 @@ def process_instance(store, domain, instance, disable=False):
     if instance.enumerated:
         return [], []
     start_time = time.time()
+    store.start_sampling_interval()
     new_results, new_facts = instance.next_results(verbose=store.verbose)
-    store.sampling_intervals.append((start_time, time.time()))
+    store.end_sampling_interval()
     store.sample_time += elapsed_time(start_time)
 
     evaluations = store.evaluations

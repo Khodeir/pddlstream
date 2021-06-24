@@ -44,6 +44,8 @@ class SolutionStore(object):
         self.complexity = [[], []] # time, compelxity level
         self.results = [[], []] # time, num results
         self.eval_data = [[], []] # time, num evaluations
+        self.start_sampling_time = self.start_time
+        self.summary = None
 
     @property
     def search_time(self):
@@ -129,21 +131,35 @@ class SolutionStore(object):
                 "results": results,
                 "depth": depth,
                 "success": success,
-                "elapsed_time": elapsed_time
+                "elapsed_time": elapsed_time,
+                "time": time.time() - self.start_time
             }
         )
 
     def change_complexity(self, complexity):
-        self.complexity[0].append(time.time())
+        self.complexity[0].append(time.time() - self.start_time)
         self.complexity[1].append(complexity)
 
     def change_results(self, results):
-        self.results[0].append(time.time())
+        self.results[0].append(time.time() - self.start_time)
         self.results[1].append(results)
 
     def change_evaluations(self, evals):
-        self.eval_data[0].append(time.time())
+        self.eval_data[0].append(time.time() - self.start_time)
         self.eval_data[1].append(evals)
+
+    def start_sampling_interval(self):
+        self.start_sampling_time = time.time() - self.start_time
+
+    def end_sampling_interval(self):
+        self.sampling_intervals.append(
+            [
+                self.start_sampling_time, time.time() - self.start_time
+            ]
+        ) 
+
+    def add_summary(self, summary):
+        self.summary = summary
 
     def write_to_json(self, jsonpath):
         data ={
@@ -154,6 +170,7 @@ class SolutionStore(object):
             "evaluations": self.eval_data,
             "iterations": self.iterations,
             "attempts": self.attempts,
+            "summary": self.summary
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True)

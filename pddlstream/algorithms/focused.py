@@ -256,6 +256,10 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
         'complexity': complexity_limit,
         'skeletons': len(skeleton_queue.skeletons),
     })
+
+    store.change_complexity(complexity_limit)
+    store.change_evaluations(summary["evaluations"])
+    store.add_summary(summary)
     print('Summary: {}'.format(str_from_object(summary, ndigits=3))) # TODO: return the summary
 
     write_stream_statistics(externals, verbose)
