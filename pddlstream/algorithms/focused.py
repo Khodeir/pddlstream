@@ -159,23 +159,39 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
             eager_calls += process_stream_queue(eager_instantiator, store,
                                                 complexity_limit=complexity_limit, verbose=verbose)
 
-        ################
+        ###############
 
         print('\nIteration: {} | Complexity: {} | Skeletons: {} | Skeleton Queue: {} | Disabled: {} | Evaluations: {} | '
               'Eager Calls: {} | Cost: {:.3f} | Search Time: {:.3f} | Sample Time: {:.3f} | Total Time: {:.3f}'.format(
             num_iterations, complexity_limit, len(skeleton_queue.skeletons), len(skeleton_queue), len(disabled),
             len(evaluations), eager_calls, store.best_cost, store.search_time, store.sample_time, store.elapsed_time()))
+
+        store.add_iteration_info(
+            num_iterations,
+            complexity_limit,
+            len(skeleton_queue.skeletons),
+            len(skeleton_queue),
+            len(disabled),
+            len(evaluations),
+            eager_calls,
+            store.best_cost,
+            store.search_time,
+            store.sample_time,
+            store.elapsed_time()
+        )
+
         optimistic_solve_fn = get_optimistic_solve_fn(goal_exp, domain, negative,
                                                       replan_actions=replan_actions, reachieve=use_skeletons,
                                                       max_cost=min(store.best_cost, constraints.max_cost),
                                                       max_effort=max_effort, effort_weight=effort_weight, **search_kwargs)
+
         # TODO: just set unit effort for each stream beforehand
         if (max_skeletons is None) or (len(skeleton_queue.skeletons) < max_skeletons):
             disabled_axioms = create_disabled_axioms(skeleton_queue) if has_optimizers else []
             if disabled_axioms:
                 domain.axioms.extend(disabled_axioms)
             stream_plan, opt_plan, cost = iterative_plan_streams(evaluations, positive_externals,
-                optimistic_solve_fn, complexity_limit, max_effort=max_effort)
+                optimistic_solve_fn, complexity_limit, store = store, max_effort=max_effort)
             for axiom in disabled_axioms:
                 domain.axioms.remove(axiom)
         else:
@@ -208,6 +224,7 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
         if not is_plan(stream_plan):
             print('No plan: increasing complexity from {} to {}'.format(complexity_limit, complexity_limit+complexity_step))
             complexity_limit += complexity_step
+            store.change_complexity(complexity_limit)
             if not eager_disabled:
                 reenable_disabled(evaluations, domain, disabled)
 

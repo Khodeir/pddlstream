@@ -58,11 +58,13 @@ def process_instance(store, domain, instance, disable=False):
         return [], []
     start_time = time.time()
     new_results, new_facts = instance.next_results(verbose=store.verbose)
+    store.sampling_intervals.append((start_time, time.time()))
     store.sample_time += elapsed_time(start_time)
 
     evaluations = store.evaluations
     if disable:
         instance.disable(evaluations, domain)
+    
     for result in new_results:
         #add_certified(evaluations, result)  # TODO: only add if the fact is actually new?
         complexity = INF if (not disable or result.external.is_special) else \

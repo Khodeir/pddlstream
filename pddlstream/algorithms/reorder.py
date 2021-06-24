@@ -277,6 +277,7 @@ def reorder_stream_plan(store, stream_plan, algorithm=None, **kwargs):
     if algorithm is None:
         algorithm = 'layer' if len(stats) <= 1 else 'optimal'
 
+
     if algorithm == 'dummy':
         return dummy_reorder_stream_plan(stream_plan, **kwargs)
     if algorithm == 'random':

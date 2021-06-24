@@ -16,6 +16,7 @@ from pddlstream.language.stream import StreamResult, Result
 from pddlstream.language.statistics import check_effort, compute_plan_effort
 from pddlstream.language.object import Object, OptimisticObject
 from pddlstream.utils import INF, safe_zip, get_mapping, implies, elapsed_time
+from pddlstream.algorithms.common import AttemptInfo
 
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
@@ -51,7 +52,7 @@ def prune_high_effort_streams(streams, max_effort=INF, **effort_args):
             low_effort_streams.append(stream)
     return low_effort_streams
 
-def optimistic_process_streams(evaluations, streams, complexity_limit=INF, **effort_args):
+def optimistic_process_streams(evaluations, streams, complexity_limit=INF, store = None, **effort_args):
     optimistic_streams = prune_high_effort_streams(streams, **effort_args)
     instantiator = Instantiator(optimistic_streams)
     for evaluation, node in evaluations.items():
@@ -60,6 +61,8 @@ def optimistic_process_streams(evaluations, streams, complexity_limit=INF, **eff
     results = []
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
         results.extend(optimistic_process_instance(instantiator, instantiator.pop_stream()))
+        if store is not None:
+            store.change_results(len(results))
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
     return results, exhausted
@@ -190,20 +193,25 @@ def hierarchical_plan_streams(evaluations, externals, results, optimistic_solve_
     return hierarchical_plan_streams(evaluations, externals, next_results, optimistic_solve_fn, complexity_limit,
                                      new_depth, next_constraints, **effort_args)
 
-def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, complexity_limit, **effort_args):
+def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, complexity_limit, store = None, **effort_args):
     # Previously didn't have unique optimistic objects that could be constructed at arbitrary depths
     start_time = time.time()
     complexity_evals = {e: n for e, n in all_evaluations.items() if n.complexity <= complexity_limit}
     num_iterations = 0
     while True:
         num_iterations += 1
-        results, exhausted = optimistic_process_streams(complexity_evals, externals, complexity_limit, **effort_args)
+        results, exhausted = optimistic_process_streams(complexity_evals, externals, complexity_limit, store = store, **effort_args)
         opt_solution, final_depth = hierarchical_plan_streams(
             complexity_evals, externals, results, optimistic_solve_fn, complexity_limit,
             depth=0, constraints=None, **effort_args)
         stream_plan, action_plan, cost = opt_solution
+        el_time = elapsed_time(start_time)
         print('Attempt: {} | Results: {} | Depth: {} | Success: {} | Time: {:.3f}'.format(
-            num_iterations, len(results), final_depth, is_plan(action_plan), elapsed_time(start_time)))
+            num_iterations, len(results), final_depth, is_plan(action_plan), el_time))
+        if store is not None:
+            store.add_attempt_info(
+                num_iterations, len(results), final_depth, is_plan(action_plan), el_time
+            )
         if is_plan(action_plan):
             return OptSolution(stream_plan, action_plan, cost)
         if final_depth == 0:

@@ -22,6 +22,46 @@ Solution = namedtuple('Solution', ['plan', 'cost', 'time'])
 
 SOLUTIONS = [] # TODO: remove global variable
 
+class IterationInfo:
+
+    def __init__(
+        self,
+        number,
+        complexity,
+        skeletons,
+        skeleton_queue,
+        disabled,
+        evaluations,
+        eager_calls,
+        cost,
+        search_time,
+        sample_time,
+        total_time,
+    ):
+        self.number = number
+        self.complexity = complexity
+        self.skeletons = skeletons
+        self.skeleton_queue = skeleton_queue
+        self.disabled = disabled
+        self.evaluations = evaluations
+        self.eager_calls = eager_calls
+        self.cost = cost
+        self.search_time = search_time
+        self.sample_time = sample_time
+        self.total_time = total_time
+        self.abs_time = time.time()
+
+
+class AttemptInfo:
+    
+    def __init__(self, attempt, results, depth, success, elapsed_time):
+        self.attempt = attempt
+        self.results = results
+        self.depth = depth
+        self.success = success
+        self.elapsed_time = elapsed_time
+        self.abs_time = time.time()
+
 class SolutionStore(object):
     def __init__(self, evaluations, max_time, success_cost, verbose, max_memory=INF):
         # TODO: store a map from head to value?
@@ -37,6 +77,13 @@ class SolutionStore(object):
         #self.best_cost = self.cost_fn(self.best_plan)
         self.solutions = []
         self.sample_time = 0.
+        self.sampling_intervals = []
+        self.iterations = []
+        self.attempts = []
+        self.complexity = [[], []] # time, compelxity level
+        self.results = [[], []] # time, num results
+        self.evaluations = [[], []] # time, num evaluations
+
     @property
     def search_time(self):
         return self.elapsed_time() - self.sample_time
@@ -82,6 +129,58 @@ class SolutionStore(object):
             'timeout': self.is_timeout(),
             #'status': status,
         }
+
+    def add_iteration_info(
+        self,
+        number,
+        complexity,
+        skeletons,
+        skeleton_queue,
+        disabled,
+        evaluations,
+        eager_calls,
+        cost,
+        search_time,
+        sample_time,
+        total_time,
+    ):
+        self.iterations.append(
+            IterationInfo(
+                number,
+                complexity,
+                skeletons,
+                skeleton_queue,
+                disabled,
+                evaluations,
+                eager_calls,
+                cost,
+                search_time,
+                sample_time,
+                total_time,
+            )
+        )
+        self.change_complexity(complexity)
+
+    def add_attempt_info(self, attempt, results, depth, success, elapsed_time):
+        self.attempts.append(
+            AttemptInfo(
+                attempt, results, depth, success, elapsed_time
+            )
+        )
+
+    def change_complexity(self, complexity):
+        self.complexity[0].append(time.time())
+        self.complexity[1].append(complexity)
+
+    def change_results(self, results):
+        self.results[0].append(time.time())
+        self.results[1].append(results)
+
+    def change_evaluations(self, evals):
+        self.evaluations[0].append(time.time())
+        self.evaluations[1].append(evals)
+
+
 
 ##################################################
 
