@@ -45,6 +45,7 @@ class SolutionStore(object):
         self.results = [[], []] # time, num results
         self.eval_data = [[], []] # time, num evaluations
         self.start_sampling_time = self.start_time
+        self.unrefined = []
         self.summary = None
 
     @property
@@ -161,6 +162,9 @@ class SolutionStore(object):
     def add_summary(self, summary):
         self.summary = summary
 
+    def record_unrefined(self):
+        self.unrefined.append(time.time() - self.start_time)
+
     def write_to_json(self, jsonpath):
         data ={
             "start_time": self.start_time,
@@ -170,7 +174,8 @@ class SolutionStore(object):
             "evaluations": self.eval_data,
             "iterations": self.iterations,
             "attempts": self.attempts,
-            "summary": self.summary
+            "summary": self.summary,
+            "unrefined": self.unrefined,
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True)

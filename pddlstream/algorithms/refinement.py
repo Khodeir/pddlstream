@@ -197,6 +197,7 @@ def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, comp
     start_time = time.time()
     complexity_evals = {e: n for e, n in all_evaluations.items() if n.complexity <= complexity_limit}
     num_iterations = 0
+    recorded = False
     while True:
         num_iterations += 1
         results, exhausted = optimistic_process_streams(complexity_evals, externals, complexity_limit, store = store, **effort_args)
@@ -211,7 +212,12 @@ def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, comp
             store.add_attempt_info(
                 num_iterations, len(results), final_depth, is_plan(action_plan), el_time
             )
+        if (num_iterations == 2):
+            recorded = True
+            store.record_unrefined()
         if is_plan(action_plan):
+            if not recorded:
+                store.record_unrefined()
             return OptSolution(stream_plan, action_plan, cost)
         if final_depth == 0:
             status = INFEASIBLE if exhausted else FAILED
