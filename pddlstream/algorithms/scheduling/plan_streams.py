@@ -252,7 +252,9 @@ def recover_stream_plan(evaluations, current_plan, opt_evaluations, goal_express
     # TODO: the returned facts have the same side-effect bug as above
     # TODO: annotate when each preimage fact is used
     preimage_facts = {fact_from_fd(l) for l in full_preimage if (l.predicate != EQ) and not l.negated}
-    store.preimages.append(preimage_facts | set([fact for stream_instance in stream_plan for fact in stream_instance.get_certified()]))
+    # Saving preimage to store
+    store.last_preimage = (preimage_facts | set([fact for stream_instance in stream_plan for fact in stream_instance.get_certified()]))
+    store.last_node_from_atom = node_from_atom
     for negative_result in negative_plan: # TODO: function_plan
         preimage_facts.update(negative_result.get_certified())
     for result in eager_plan:

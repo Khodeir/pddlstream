@@ -1,5 +1,6 @@
 import time
 import json
+import pickle
 from collections import namedtuple, OrderedDict
 
 from pddlstream.language.constants import is_plan, get_length, FAILED #, INFEASIBLE, SUCCEEDED
@@ -47,7 +48,8 @@ class SolutionStore(object):
         self.start_sampling_time = self.start_time
         self.unrefined = []
         self.summary = None
-        self.preimages = []
+        self.last_preimage = None
+        self.last_node_from_atom = None
 
     @property
     def search_time(self):
@@ -167,6 +169,14 @@ class SolutionStore(object):
         self.unrefined.append(time.time() - self.start_time)
 
     def write_to_json(self, jsonpath):
+        atom_map = {}
+        for atom in self.last_node_from_atom:
+            node = self.last_node_from_atom[atom]
+            result = node.result
+            if result is None:
+                atom_map[atom] = []
+                continue
+            atom_map[atom] = result.domain
         data ={
             "start_time": self.start_time,
             "sampling_intervals": self.sampling_intervals,
@@ -177,10 +187,12 @@ class SolutionStore(object):
             "attempts": self.attempts,
             "summary": self.summary,
             "unrefined": self.unrefined,
-            "preimages": [list(s) for s in self.preimages]
+            "last_preimage": list(self.last_preimage),
+            "atom_map": list(atom_map.items())
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
+
 
 import numpy as np
 from pddlstream.language.object import Object, OptimisticObject
@@ -188,14 +200,14 @@ from panda_station.utils import RigidTransformWrapper
 class ComplexEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Object):
-            return obj.value
+            return obj.pddl
         # Let the base class default method raise the TypeError
         if isinstance(obj, OptimisticObject):
             return obj.pddl
-        if isinstance(obj, RigidTransformWrapper):
-            return obj.xyz_rpy_list
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
+        #if isinstance(obj, RigidTransformWrapper):
+        #    return obj.xyz_rpy_list
+        #if isinstance(obj, np.ndarray):
+        #    return obj.tolist()
 
         return json.JSONEncoder.default(self, obj)
 

@@ -264,8 +264,8 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
 
     write_stream_statistics(externals, verbose)
     if not(logpath is None):
-        print(f"Logging statistics to {logpath}")
-        store.write_to_json(logpath)
+        print(f"Logging statistics to {logpath + 'stats.json'}")
+        store.write_to_json(logpath + 'stats.json')
 
     return store.extract_solution()
 

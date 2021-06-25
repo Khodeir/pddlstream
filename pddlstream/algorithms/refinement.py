@@ -7,7 +7,7 @@ from copy import deepcopy, copy
 
 from pddlstream.algorithms.instantiation import Instantiator
 from pddlstream.algorithms.scheduling.plan_streams import plan_streams, OptSolution
-from pddlstream.algorithms.scheduling.recover_streams import evaluations_from_stream_plan
+from pddlstream.algorithms.scheduling.recover_streams import evaluations_from_stream_plan, get_achieving_streams
 from pddlstream.algorithms.constraints import add_plan_constraints, PlanConstraints, WILD
 from pddlstream.language.constants import FAILED, INFEASIBLE, is_plan
 from pddlstream.language.conversion import evaluation_from_fact, substitute_expression
@@ -16,10 +16,12 @@ from pddlstream.language.stream import StreamResult, Result
 from pddlstream.language.statistics import check_effort, compute_plan_effort
 from pddlstream.language.object import Object, OptimisticObject
 from pddlstream.utils import INF, safe_zip, get_mapping, implies, elapsed_time
+from learning import oracle
 
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
 MAX_DEPTH = INF # 1 | INF
+ORACLE = True
 
 def is_refined(stream_plan):
     # TODO: lazily expand the shared objects in some cases to prevent increase in size
@@ -31,12 +33,16 @@ def is_refined(stream_plan):
 
 ##################################################
 
-def optimistic_process_instance(instantiator, instance, verbose=False):
+
+def optimistic_process_instance(instantiator, instance, node_from_atom = None, verbose=False):
     for result in instance.next_optimistic():
         if verbose:
             print(result) # TODO: make a debug tools that reports the optimistic streams
         new_facts = False
         complexity = instantiator.compute_complexity(instance)
+        if ORACLE and node_from_atom:
+            if not oracle.is_relevant(result, node_from_atom):
+                continue
         for fact in result.get_certified():
             new_facts |= instantiator.add_atom(evaluation_from_fact(fact), complexity)
         if isinstance(result, FunctionResult) or new_facts:
@@ -59,7 +65,8 @@ def optimistic_process_streams(evaluations, streams, complexity_limit=INF, store
             instantiator.add_atom(evaluation, node.complexity)
     results = []
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
-        results.extend(optimistic_process_instance(instantiator, instantiator.pop_stream()))
+        node_from_atom = get_achieving_streams(evaluations, results)
+        results.extend(optimistic_process_instance(instantiator, instantiator.pop_stream(), node_from_atom=node_from_atom))
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
     if store is not None:
