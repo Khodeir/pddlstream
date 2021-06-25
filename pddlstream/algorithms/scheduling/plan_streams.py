@@ -123,7 +123,7 @@ def recover_partial_orders(stream_plan, node_from_atom):
     return partial_orders
 
 def recover_stream_plan(evaluations, current_plan, opt_evaluations, goal_expression, domain, node_from_atom,
-                        action_plan, axiom_plans, negative, replan_step):
+                        action_plan, axiom_plans, negative, replan_step, store=None):
     # Universally quantified conditions are converted into negative axioms
     # Existentially quantified conditions are made additional preconditions
     # Universally quantified effects are instantiated by doing the cartesian produce of types (slow)
@@ -136,7 +136,7 @@ def recover_stream_plan(evaluations, current_plan, opt_evaluations, goal_express
         real_task, opt_task, axiom_plans, action_plan, negative_from_name)
     function_plan = compute_function_plan(opt_evaluations, action_plan)
 
-    full_preimage = plan_preimage(full_plan, []) # Does not contain the stream preimage!
+    full_preimage = plan_preimage(full_plan, [])  # Does not contain the stream preimage!
     negative_preimage = set(filter(lambda a: a.predicate in negative_from_name, full_preimage))
     negative_plan = convert_negative(negative_preimage, negative_from_name, full_preimage, real_states)
     function_plan.update(negative_plan)
@@ -252,6 +252,7 @@ def recover_stream_plan(evaluations, current_plan, opt_evaluations, goal_express
     # TODO: the returned facts have the same side-effect bug as above
     # TODO: annotate when each preimage fact is used
     preimage_facts = {fact_from_fd(l) for l in full_preimage if (l.predicate != EQ) and not l.negated}
+    store.preimages.append(preimage_facts | set([fact for stream_instance in stream_plan for fact in stream_instance.get_certified()]))
     for negative_result in negative_plan: # TODO: function_plan
         preimage_facts.update(negative_result.get_certified())
     for result in eager_plan:
@@ -334,6 +335,7 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
 
 def plan_streams(evaluations, goal_expression, domain, all_results, negative, effort_weight, max_effort,
                  simultaneous=False, reachieve=True, replan_actions=set(), **kwargs):
+    store = kwargs.pop("store", None)
     # TODO: alternatively could translate with stream actions on real opt_state and just discard them
     # TODO: only consider axioms that have stream conditions?
     #reachieve = reachieve and not using_optimizers(all_results)
@@ -375,7 +377,7 @@ def plan_streams(evaluations, goal_expression, domain, all_results, negative, ef
                        if action.name in replan_actions] or [len(action_plan)+1]) # step after action application
 
     stream_plan, opt_plan = recover_stream_plan(evaluations, stream_plan, opt_evaluations, goal_expression, stream_domain,
-        node_from_atom, action_instances, axiom_plans, negative, replan_step)
+        node_from_atom, action_instances, axiom_plans, negative, replan_step, store=store)
     if temporal_plan is not None:
         # TODO: handle deferred streams
         assert all(isinstance(action, Action) for action in opt_plan.action_plan)

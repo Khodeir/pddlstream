@@ -47,6 +47,7 @@ class SolutionStore(object):
         self.start_sampling_time = self.start_time
         self.unrefined = []
         self.summary = None
+        self.preimages = []
 
     @property
     def search_time(self):
@@ -176,13 +177,27 @@ class SolutionStore(object):
             "attempts": self.attempts,
             "summary": self.summary,
             "unrefined": self.unrefined,
+            "preimages": [list(s) for s in self.preimages]
         }
         with open(jsonpath, "a") as stream:
-            json.dump(data, stream, indent = 4, sort_keys = True)
+            json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
 
+import numpy as np
+from pddlstream.language.object import Object, OptimisticObject
+from panda_station.utils import RigidTransformWrapper
+class ComplexEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Object):
+            return obj.value
+        # Let the base class default method raise the TypeError
+        if isinstance(obj, OptimisticObject):
+            return obj.pddl
+        if isinstance(obj, RigidTransformWrapper):
+            return obj.xyz_rpy_list
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
 
-
-
+        return json.JSONEncoder.default(self, obj)
 
 ##################################################
 
