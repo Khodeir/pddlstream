@@ -15,7 +15,7 @@ from pddlstream.utils import str_from_object, get_mapping, irange, apply_mapping
 
 VERBOSE_FAILURES = True
 VERBOSE_WILD = False
-DEFAULT_UNIQUE = False
+DEFAULT_UNIQUE = True
 NEGATIVE_BLOCKED = True
 NEGATIVE_SUFFIX = '-negative'
 CACHE_OPTIMISTIC = True

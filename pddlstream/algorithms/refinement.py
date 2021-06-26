@@ -21,7 +21,7 @@ from learning import oracle
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
 MAX_DEPTH = INF # 1 | INF
-ORACLE = True
+ORACLE = False
 
 def is_refined(stream_plan):
     # TODO: lazily expand the shared objects in some cases to prevent increase in size
@@ -42,6 +42,7 @@ def optimistic_process_instance(instantiator, instance, node_from_atom = None, v
         complexity = instantiator.compute_complexity(instance)
         if ORACLE and node_from_atom:
             if not oracle.is_relevant(result, node_from_atom):
+                #print("Not Relevant", time.time())
                 continue
         for fact in result.get_certified():
             new_facts |= instantiator.add_atom(evaluation_from_fact(fact), complexity)
