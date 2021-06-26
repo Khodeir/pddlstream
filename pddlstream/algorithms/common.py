@@ -48,8 +48,8 @@ class SolutionStore(object):
         self.start_sampling_time = self.start_time
         self.unrefined = []
         self.summary = None
-        self.last_preimage = None
-        self.last_node_from_atom = None
+        self.last_preimage = set()
+        self.last_node_from_atom = []
 
     @property
     def search_time(self):
