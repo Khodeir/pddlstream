@@ -173,7 +173,6 @@ class SolutionStore(object):
         for atom in self.last_node_from_atom:
             node = self.last_node_from_atom[atom]
             result = node.result
-            print(node)
             if result is None:
                 atom_map[atom] = []
                 continue
