@@ -50,6 +50,8 @@ class SolutionStore(object):
         self.summary = None
         self.last_preimage = set()
         self.last_node_from_atom = []
+        self.last_facts = set() # the union of facts obtained from StreamResults + facts in evaluations at last iteration
+        self.last_facts_node_from_atom = [] # the ancestor map for self.last_facts
 
     @property
     def search_time(self):
@@ -168,15 +170,18 @@ class SolutionStore(object):
     def record_unrefined(self):
         self.unrefined.append(time.time() - self.start_time)
 
-    def write_to_json(self, jsonpath):
+    def node_from_atom_to_atom_map(self, node_from_atom):
         atom_map = {}
-        for atom in self.last_node_from_atom:
-            node = self.last_node_from_atom[atom]
+        for atom in node_from_atom:
+            node = node_from_atom[atom]
             result = node.result
             if result is None:
                 atom_map[atom] = []
                 continue
             atom_map[atom] = result.domain
+        return atom_map
+        
+    def write_to_json(self, jsonpath):
         data ={
             "start_time": self.start_time,
             "sampling_intervals": self.sampling_intervals,
@@ -188,7 +193,9 @@ class SolutionStore(object):
             "summary": self.summary,
             "unrefined": self.unrefined,
             "last_preimage": list(self.last_preimage),
-            "atom_map": list(atom_map.items())
+            "atom_map": list(self.node_from_atom_to_atom_map(self.last_node_from_atom).items()),
+            "last_facts": list(self.last_facts),
+            "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)

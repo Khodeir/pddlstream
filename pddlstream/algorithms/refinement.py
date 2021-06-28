@@ -10,7 +10,7 @@ from pddlstream.algorithms.scheduling.plan_streams import plan_streams, OptSolut
 from pddlstream.algorithms.scheduling.recover_streams import evaluations_from_stream_plan, get_achieving_streams
 from pddlstream.algorithms.constraints import add_plan_constraints, PlanConstraints, WILD
 from pddlstream.language.constants import FAILED, INFEASIBLE, is_plan
-from pddlstream.language.conversion import evaluation_from_fact, substitute_expression
+from pddlstream.language.conversion import evaluation_from_fact, substitute_expression, fact_from_evaluation
 from pddlstream.language.function import FunctionResult, Function
 from pddlstream.language.stream import StreamResult, Result
 from pddlstream.language.statistics import check_effort, compute_plan_effort
@@ -42,8 +42,9 @@ def optimistic_process_instance(instantiator, instance, node_from_atom = None, v
         complexity = instantiator.compute_complexity(instance)
         if ORACLE and node_from_atom:
             if not oracle.is_relevant(result, node_from_atom):
-                #print("Not Relevant", time.time())
+                print("Not Relevant", result)
                 continue
+            print("Relevant", result)
         for fact in result.get_certified():
             new_facts |= instantiator.add_atom(evaluation_from_fact(fact), complexity)
         if isinstance(result, FunctionResult) or new_facts:
@@ -66,12 +67,18 @@ def optimistic_process_streams(evaluations, streams, complexity_limit=INF, store
             instantiator.add_atom(evaluation, node.complexity)
     results = []
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
-        node_from_atom = get_achieving_streams(evaluations, results)
+        # TODO: incrementally update this instead of recomputing from scratch each time.
+        if ORACLE:
+            node_from_atom = get_achieving_streams(evaluations, results)
+        else:
+            node_from_atom = None
         results.extend(optimistic_process_instance(instantiator, instantiator.pop_stream(), node_from_atom=node_from_atom))
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
     if store is not None:
         store.change_results(len(results))
+        store.last_facts_node_from_atom = get_achieving_streams(evaluations, results)
+        store.last_facts = set([f for r in results for f in r.get_certified()]) | set([fact_from_evaluation(e) for e in evaluations])
     return results, exhausted
 
 ##################################################
