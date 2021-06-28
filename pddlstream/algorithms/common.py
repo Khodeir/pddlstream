@@ -202,11 +202,8 @@ class SolutionStore(object):
             "atom_map": list(self.node_from_atom_to_atom_map(self.last_node_from_atom).items()),
             "last_facts": list(self.last_facts),
             "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
-<<<<<<< HEAD
-            "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans]
-=======
-            "pddl_problems": self.pddl_problems
->>>>>>> refs/remotes/origin/profiling
+            "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans],
+            "pddl_problems": self.pddl_problems,
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
