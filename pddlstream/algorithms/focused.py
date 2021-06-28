@@ -287,7 +287,7 @@ def solve_focused_original(problem, fail_fast=False, **kwargs):
     return solve_abstract(problem, max_skeletons=None, search_sample_ratio=None,
                           bind=False, max_failures=max_failures, **kwargs)
 
-def solve_binding(problem, fail_fast=False, **kwargs):
+def solve_binding(problem, fail_fast=False, logpath = None, **kwargs):
     """
     Solves a PDDLStream problem by first planning with optimistic stream outputs and then querying streams
     :param problem: a PDDLStream problem
@@ -299,7 +299,7 @@ def solve_binding(problem, fail_fast=False, **kwargs):
     """
     max_failures = 0 if fail_fast else INF
     return solve_abstract(problem, max_skeletons=None, search_sample_ratio=None,
-                          bind=True, max_failures=max_failures, **kwargs)
+                          bind=True, max_failures=max_failures, logpath = logpath, **kwargs)
 
 def solve_adaptive(problem, max_skeletons=INF, search_sample_ratio=1, logpath = None, **kwargs):
     """

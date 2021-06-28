@@ -132,7 +132,7 @@ def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
             #max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
             fail_fast=fail_fast, # bind=bind, max_failures=max_failures,
             unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
-            visualize=visualize, verbose=verbose, **search_kwargs)
+            visualize=visualize, verbose=verbose, logpath = logpath, **search_kwargs)
 
     if algorithm == 'adaptive':
         return solve_adaptive(
