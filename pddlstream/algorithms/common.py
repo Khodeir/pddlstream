@@ -52,6 +52,7 @@ class SolutionStore(object):
         self.last_node_from_atom = []
         self.last_facts = set() # the union of facts obtained from StreamResults + facts in evaluations at last iteration
         self.last_facts_node_from_atom = [] # the ancestor map for self.last_facts
+        self.opt_plans = []
 
     @property
     def search_time(self):
@@ -63,6 +64,10 @@ class SolutionStore(object):
     @property
     def best_cost(self):
         return self.solutions[-1].cost if self.solutions else INF
+
+    def add_opt_plan(self, opt_plan):
+        self.opt_plans.append(opt_plan)
+
     def add_plan(self, plan, cost):
         # TODO: double-check that plan is a solution
         if is_plan(plan) and (cost < self.best_cost):
@@ -196,6 +201,7 @@ class SolutionStore(object):
             "atom_map": list(self.node_from_atom_to_atom_map(self.last_node_from_atom).items()),
             "last_facts": list(self.last_facts),
             "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
+            "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans]
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
