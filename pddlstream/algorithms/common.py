@@ -53,6 +53,7 @@ class SolutionStore(object):
         self.last_facts = set() # the union of facts obtained from StreamResults + facts in evaluations at last iteration
         self.last_facts_node_from_atom = [] # the ancestor map for self.last_facts
         self.opt_plans = []
+        self.pddl_problems = []
 
     @property
     def search_time(self):
@@ -201,7 +202,11 @@ class SolutionStore(object):
             "atom_map": list(self.node_from_atom_to_atom_map(self.last_node_from_atom).items()),
             "last_facts": list(self.last_facts),
             "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
+<<<<<<< HEAD
             "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans]
+=======
+            "pddl_problems": self.pddl_problems
+>>>>>>> refs/remotes/origin/profiling
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
