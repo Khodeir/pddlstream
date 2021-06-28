@@ -303,6 +303,10 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
     #print(sorted(map(fact_from_evaluation, opt_evaluations)))
     temporal_plan = None
     problem = get_problem(opt_evaluations, goal_expression, stream_domain)  # begin_metric
+    pddl_prob = get_problem_pddl(opt_evaluations, goal_expression, domain.pddl, temporal=False)
+    store = kwargs.pop("store", None)
+    if store is not None:
+        store.pddl_problems.append(pddl_prob)
     with Verbose(verbose=debug):
         task = task_from_domain_problem(stream_domain, problem)
         instantiated = instantiate_task(task)
