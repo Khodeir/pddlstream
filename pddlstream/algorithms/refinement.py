@@ -176,9 +176,9 @@ def hierarchical_plan_streams(evaluations, externals, results, optimistic_solve_
     if MAX_DEPTH <= depth:
         return OptSolution(None, None, INF), depth
     stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, results, constraints, store=store)
+    if is_plan(opt_plan) and not is_refined(stream_plan):
+        store.record_unrefined()
     if not is_plan(opt_plan) or is_refined(stream_plan):
-        # if is_refined(stream_plan):
-            
         return OptSolution(stream_plan, opt_plan, cost), depth
     #action_plan, preimage_facts = opt_plan
     #dump_plans(stream_plan, action_plan, cost)
@@ -229,12 +229,7 @@ def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, comp
             store.add_attempt_info(
                 num_iterations, len(results), final_depth, is_plan(action_plan), el_time
             )
-        if (num_iterations == 2):
-            recorded = True
-            store.record_unrefined()
         if is_plan(action_plan):
-            if not recorded:
-                store.record_unrefined()
             return OptSolution(stream_plan, action_plan, cost)
         if final_depth == 0:
             status = INFEASIBLE if exhausted else FAILED
