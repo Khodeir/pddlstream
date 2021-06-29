@@ -4,7 +4,7 @@ import pickle
 from collections import namedtuple, OrderedDict
 
 from pddlstream.language.constants import is_plan, get_length, FAILED #, INFEASIBLE, SUCCEEDED
-from pddlstream.language.conversion import evaluation_from_fact, obj_from_value_expression, revert_solution
+from pddlstream.language.conversion import evaluation_from_fact, obj_from_value_expression, revert_solution, fact_from_evaluation
 from pddlstream.utils import INF, elapsed_time, check_memory
 
 # Complexity is a way to characterize the number of external evaluations required for a solution
@@ -49,9 +49,9 @@ class SolutionStore(object):
         self.unrefined = []
         self.summary = None
         self.last_preimage = set()
-        self.last_node_from_atom = []
+        self.last_node_from_atom = {}
         self.last_facts = set() # the union of facts obtained from StreamResults + facts in evaluations at last iteration
-        self.last_facts_node_from_atom = [] # the ancestor map for self.last_facts
+        self.last_facts_node_from_atom = {} # the ancestor map for self.last_facts
         self.opt_plans = []
         self.pddl_problems = []
 
@@ -178,6 +178,9 @@ class SolutionStore(object):
 
     def node_from_atom_to_atom_map(self, node_from_atom):
         atom_map = {}
+        for evaluation in self.evaluations:
+            fact = fact_from_evaluation(evaluation)
+            node_from_atom[fact] = self.evaluations[evaluation]
         for atom in node_from_atom:
             node = node_from_atom[atom]
             result = node.result
