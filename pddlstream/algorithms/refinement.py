@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import time
+import os
 
 from itertools import product
 from copy import deepcopy, copy
@@ -21,7 +22,12 @@ from learning import oracle
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
 MAX_DEPTH = INF # 1 | INF
-ORACLE = False
+if "ORACLE" in os.environ:
+    ORACLE = os.environ["ORACLE"] == "True"
+else:
+    ORACLE = False
+print(f"USING ORACLE = {ORACLE}")
+
 
 def is_refined(stream_plan):
     # TODO: lazily expand the shared objects in some cases to prevent increase in size

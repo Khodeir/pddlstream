@@ -1,4 +1,5 @@
 import time
+import os
 from collections import Counter, Sequence
 
 from pddlstream.algorithms.common import INTERNAL_EVALUATION, add_fact
@@ -15,7 +16,12 @@ from pddlstream.utils import str_from_object, get_mapping, irange, apply_mapping
 
 VERBOSE_FAILURES = True
 VERBOSE_WILD = False
-DEFAULT_UNIQUE = False
+if "DEFAULT_UNIQUE" in os.environ:
+    DEFAULT_UNIQUE = os.environ["DEFAULT_UNIQUE"] == "True"
+else:
+    DEFAULT_UNIQUE = False
+
+print(f"USING DEFAULT_UNIQUE = {DEFAULT_UNIQUE}")
 NEGATIVE_BLOCKED = True
 NEGATIVE_SUFFIX = '-negative'
 CACHE_OPTIMISTIC = True
@@ -46,7 +52,7 @@ class PartialInputs(object):
         self.unique = unique # TODO: refactor this
         self.test = test
         #self.num = num
-        self.stream = None
+        
     #def register(self, stream):
     #    assert self.stream is None
     #    self.stream = stream
