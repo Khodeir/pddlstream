@@ -73,6 +73,8 @@ class SolutionStore(object):
         # TODO: double-check that plan is a solution
         if is_plan(plan) and (cost < self.best_cost):
             self.solutions.append(Solution(plan, cost, elapsed_time(self.start_time)))
+            self.last_node_from_atom = {}
+            self.last_preimage = {f for f in plan.preimage_facts if not any(isinstance(arg, OptimisticObject) for arg in f) }
     def has_solution(self):
         return is_plan(self.best_plan)
     def is_solved(self):

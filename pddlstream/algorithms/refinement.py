@@ -190,6 +190,8 @@ def hierarchical_plan_streams(evaluations, externals, results, optimistic_solve_
     stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, results, constraints, store=store)
     if is_plan(opt_plan) and not is_refined(stream_plan):
         store.record_unrefined()
+    if is_plan(opt_plan) and is_refined(stream_plan):
+        store.add_opt_plan(opt_plan)
     if not is_plan(opt_plan) or is_refined(stream_plan):
         return OptSolution(stream_plan, opt_plan, cost), depth
     #action_plan, preimage_facts = opt_plan
