@@ -50,7 +50,7 @@ def optimistic_process_instance(instantiator, instance, oracle_checker=None, ver
         if ORACLE and oracle_checker is not None:
             if not oracle_checker(result):
                 # print("Not Relevant", result)
-                continue
+                return
             # print("Relevant", result)
         for fact in result.get_certified():
             new_facts |= instantiator.add_atom(evaluation_from_fact(fact), complexity)
