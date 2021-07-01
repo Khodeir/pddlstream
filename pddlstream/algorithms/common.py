@@ -184,7 +184,9 @@ class SolutionStore(object):
         for atom in node_from_atom:
             node = node_from_atom[atom]
             result = node.result
-            if result is None:
+            # TODO: look into whether there is a way to get the original parents
+            # for an INTERNAL_EVALUATION. See StreamInstance._disable_negated
+            if result is INIT_EVALUATION or result is INTERNAL_EVALUATION:
                 atom_map[atom] = []
                 continue
             atom_map[atom] = result.domain

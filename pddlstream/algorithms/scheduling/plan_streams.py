@@ -341,7 +341,7 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
 
 def plan_streams(evaluations, goal_expression, domain, all_results, negative, effort_weight, max_effort,
                  simultaneous=False, reachieve=True, replan_actions=set(), **kwargs):
-    store = kwargs.pop("store", None)
+    store = kwargs.get("store", None)
     # TODO: alternatively could translate with stream actions on real opt_state and just discard them
     # TODO: only consider axioms that have stream conditions?
     #reachieve = reachieve and not using_optimizers(all_results)
