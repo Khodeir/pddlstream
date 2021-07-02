@@ -81,6 +81,7 @@ def optimistic_process_streams(evaluations, streams, complexity_limit=INF, store
         # TODO: incrementally update this instead of recomputing from scratch each time.
         if ORACLE:
             node_from_atom = get_achieving_streams(evaluations, results)
+            node_from_atom.update({fact_from_evaluation(e):r for e,r in evaluations.items()})
             current_oracle_checker = partial(oracle_checker, node_from_atom=node_from_atom)
         else:
             current_oracle_checker = None
