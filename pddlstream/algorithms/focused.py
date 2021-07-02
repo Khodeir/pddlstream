@@ -1,7 +1,9 @@
 from __future__ import print_function
 
 import time
-
+import sys
+import signal
+from functools import partial
 from pddlstream.algorithms.algorithm import parse_problem
 from pddlstream.algorithms.advanced import enforce_simultaneous, identify_non_producers
 from pddlstream.algorithms.common import SolutionStore
@@ -68,6 +70,13 @@ def check_dominated(skeleton_queue, stream_plan):
     raise NotImplementedError()
 
 ##################################################
+
+def signal_handler(store, logpath, sig, frame):
+    print("You pressed ctrl-C")
+    if not(logpath is None):
+        print(f"Logging statistics to {logpath + 'stats.json'}")
+        store.write_to_json(logpath + 'stats.json')
+    sys.exit(0)
 
 def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, replan_actions=set(),
                   unit_costs=False, success_cost=INF,
@@ -150,6 +159,9 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
     store = SolutionStore(evaluations, max_time, success_cost, verbose, max_memory=max_memory)
     skeleton_queue = SkeletonQueue(store, domain, disable=not has_optimizers)
     disabled = set() # Max skeletons after a solution
+
+    signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
+
     while (not store.is_terminated()) and (num_iterations < max_iterations) and (complexity_limit <= max_complexity):
         num_iterations += 1
         eager_instantiator = Instantiator(eager_externals, evaluations) # Only update after an increase?
