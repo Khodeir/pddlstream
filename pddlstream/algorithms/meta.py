@@ -49,7 +49,9 @@ def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
           unit_efforts=False, max_effort=INF, effort_weight=None, reorder=True,
           #temp_dir=TEMP_DIR, clean=False, debug=False, hierarchy=[],
           #planner=DEFAULT_PLANNER, max_planner_time=DEFAULT_MAX_TIME, max_cost=INF, debug=False
-          visualize=False, verbose=True, logpath = None, **search_kwargs):
+          visualize=False, verbose=True, logpath = None, oracle = None,
+          **search_kwargs,
+    ):
     """
     Solves a PDDLStream problem generically using one of the available algorithms
     :param problem: a PDDLStream problem
@@ -144,7 +146,7 @@ def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
             max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
             #bind=bind, max_failures=max_failures,
             unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
-            visualize=visualize, verbose=verbose, logpath = logpath, **search_kwargs)
+            visualize=visualize, verbose=verbose, logpath = logpath, oracle = oracle, **search_kwargs)
     raise NotImplementedError(algorithm)
 
 ##################################################
