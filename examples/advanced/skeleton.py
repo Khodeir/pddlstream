@@ -19,7 +19,7 @@ from pddlstream.algorithms.visualization import create_visualizations, \
 from pddlstream.language.constants import OptPlan, is_plan, get_length, str_from_plan, print_solution, Output
 from pddlstream.language.statistics import compute_plan_effort
 from pddlstream.language.function import Function
-from pddlstream.language.stream import Stream, StreamInfo, DEBUG
+from pddlstream.language.stream import Stream, , DEBUG
 from pddlstream.language.generator import from_gen, universe_test, from_gen_fn
 from pddlstream.utils import INF, SEPARATOR, neighbors_from_orders, safe_apply_mapping, inf_generator, irange, safe_zip
 

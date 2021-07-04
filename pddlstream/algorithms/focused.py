@@ -141,6 +141,7 @@ def solve_abstract(
     verbose=True,
     logpath=None,
     oracle=None,
+    use_unique = False,
     **search_kwargs,
 ):
     """
@@ -196,6 +197,7 @@ def solve_abstract(
         constraints=constraints,
         unit_costs=unit_costs,
         unit_efforts=unit_efforts,
+        use_unique = use_unique,
     )
     identify_non_producers(externals)
     enforce_simultaneous(domain, externals)
@@ -485,6 +487,7 @@ def solve_adaptive(
     search_sample_ratio=1,
     logpath=None,
     oracle=None,
+    use_unique = False,
     **kwargs,
 ):
     """
@@ -508,6 +511,7 @@ def solve_adaptive(
         max_failures=None,
         logpath=logpath,
         oracle=oracle,
+        use_unique = use_unique,
         **kwargs,
     )
 

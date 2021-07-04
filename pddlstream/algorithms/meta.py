@@ -6,52 +6,103 @@ from collections import defaultdict
 from pddlstream.algorithms.algorithm import parse_problem
 from pddlstream.algorithms.common import evaluations_from_init
 from pddlstream.algorithms.constraints import PlanConstraints
-from pddlstream.algorithms.downward import get_problem, task_from_domain_problem, fact_from_fd, fd_from_fact, fd_from_evaluations
+from pddlstream.algorithms.downward import (
+    get_problem,
+    task_from_domain_problem,
+    fact_from_fd,
+    fd_from_fact,
+    fd_from_evaluations,
+)
 from pddlstream.algorithms.incremental import solve_incremental
-from pddlstream.algorithms.focused import solve_focused_original, solve_binding, solve_adaptive
-from pddlstream.algorithms.instantiate_task import instantiate_task, convert_instantiated
+from pddlstream.algorithms.focused import (
+    solve_focused_original,
+    solve_binding,
+    solve_adaptive,
+)
+from pddlstream.algorithms.instantiate_task import (
+    instantiate_task,
+    convert_instantiated,
+)
 from pddlstream.algorithms.refinement import optimistic_process_streams
 from pddlstream.algorithms.scheduling.reinstantiate import reinstantiate_axiom
-from pddlstream.algorithms.scheduling.recover_streams import evaluations_from_stream_plan
-from pddlstream.language.constants import is_plan, Certificate, PDDLProblem, get_prefix, Solution
+from pddlstream.algorithms.scheduling.recover_streams import (
+    evaluations_from_stream_plan,
+)
+from pddlstream.language.constants import (
+    is_plan,
+    Certificate,
+    PDDLProblem,
+    get_prefix,
+    Solution,
+)
 from pddlstream.language.conversion import value_from_obj_expression, EQ
 from pddlstream.language.external import DEBUG, SHARED_DEBUG
 from pddlstream.language.stream import PartialInputs
 from pddlstream.language.temporal import SimplifiedDomain
 from pddlstream.utils import elapsed_time, INF, Verbose, irange, SEPARATOR
 
-FOCUSED_ALGORITHMS = ['focused', 'binding', 'adaptive']
-ALGORITHMS = ['incremental'] + FOCUSED_ALGORITHMS
-DEFAULT_ALGORITHM = 'adaptive'
+FOCUSED_ALGORITHMS = ["focused", "binding", "adaptive"]
+ALGORITHMS = ["incremental"] + FOCUSED_ALGORITHMS
+DEFAULT_ALGORITHM = "adaptive"
 
 ##################################################
 
+
 def create_parser(default_algorithm=DEFAULT_ALGORITHM):
     # https://docs.python.org/3/library/argparse.html#the-add-argument-method
-    parser = argparse.ArgumentParser() # Automatically includes help
-    parser.add_argument('-a', '--algorithm', type=str, default=default_algorithm, choices=ALGORITHMS, required=False,
-                        help='Specifies the PDDLStream algorithm to use')
-    parser.add_argument('-u', '--unit', action='store_true', help='Uses unit costs') # --unit_costs
+    parser = argparse.ArgumentParser()  # Automatically includes help
+    parser.add_argument(
+        "-a",
+        "--algorithm",
+        type=str,
+        default=default_algorithm,
+        choices=ALGORITHMS,
+        required=False,
+        help="Specifies the PDDLStream algorithm to use",
+    )
+    parser.add_argument(
+        "-u", "--unit", action="store_true", help="Uses unit costs"
+    )  # --unit_costs
     # args = parser.parse_args()
     # print('Arguments:', args)
     # TODO: search planner, debug
     # TODO: method that calls solve with args
     return parser
 
+
 ##################################################
 
-def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
-          stream_info={}, replan_actions=set(),
-          unit_costs=False, success_cost=INF,
-          max_time=INF, max_iterations=INF, max_memory=INF,
-          initial_complexity=0, complexity_step=1, max_complexity=INF,
-          max_skeletons=INF, search_sample_ratio=1, max_failures=0,
-          unit_efforts=False, max_effort=INF, effort_weight=None, reorder=True,
-          #temp_dir=TEMP_DIR, clean=False, debug=False, hierarchy=[],
-          #planner=DEFAULT_PLANNER, max_planner_time=DEFAULT_MAX_TIME, max_cost=INF, debug=False
-          visualize=False, verbose=True, logpath = None, oracle = None,
-          **search_kwargs,
-    ):
+
+def solve(
+    problem,
+    algorithm=DEFAULT_ALGORITHM,
+    constraints=PlanConstraints(),
+    stream_info={},
+    replan_actions=set(),
+    unit_costs=False,
+    success_cost=INF,
+    max_time=INF,
+    max_iterations=INF,
+    max_memory=INF,
+    initial_complexity=0,
+    complexity_step=1,
+    max_complexity=INF,
+    max_skeletons=INF,
+    search_sample_ratio=1,
+    max_failures=0,
+    unit_efforts=False,
+    max_effort=INF,
+    effort_weight=None,
+    reorder=True,
+    # temp_dir=TEMP_DIR, clean=False, debug=False, hierarchy=[],
+    # planner=DEFAULT_PLANNER, max_planner_time=DEFAULT_MAX_TIME, max_cost=INF, debug=False
+    visualize=False,
+    verbose=True,
+    logpath=None,
+    oracle=None,
+    use_unique=False,
+    **search_kwargs,
+):
     """
     Solves a PDDLStream problem generically using one of the available algorithms
     :param problem: a PDDLStream problem
@@ -91,13 +142,21 @@ def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
     # TODO: print the arguments using locals()
     # TODO: could instead make common arguments kwargs but then they could have different default values
     # TODO: portfolios of PDDLStream algorithms
-    if algorithm == 'incremental':
+    if algorithm == "incremental":
         return solve_incremental(
-            problem=problem, constraints=constraints,
-            unit_costs=unit_costs, success_cost=success_cost,
-            max_iterations=max_iterations, max_time=max_time, max_memory=max_memory,
-            initial_complexity=initial_complexity, complexity_step=complexity_step, max_complexity=max_complexity,
-            verbose=verbose, **search_kwargs)
+            problem=problem,
+            constraints=constraints,
+            unit_costs=unit_costs,
+            success_cost=success_cost,
+            max_iterations=max_iterations,
+            max_time=max_time,
+            max_memory=max_memory,
+            initial_complexity=initial_complexity,
+            complexity_step=complexity_step,
+            max_complexity=max_complexity,
+            verbose=verbose,
+            **search_kwargs,
+        )
 
     # if algorithm == 'abstract_focused': # meta_focused | meta_focused
     #     return solve_focused(
@@ -111,47 +170,95 @@ def solve(problem, algorithm=DEFAULT_ALGORITHM, constraints=PlanConstraints(),
     #         unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
     #         visualize=visualize, verbose=verbose, **search_kwargs)
 
-    fail_fast = (max_failures < INF)
-    if algorithm == 'focused':
+    fail_fast = max_failures < INF
+    if algorithm == "focused":
         return solve_focused_original(
-            problem, constraints=constraints,
-            stream_info=stream_info, replan_actions=replan_actions,
-            unit_costs=unit_costs, success_cost=success_cost,
-            max_time=max_time, max_iterations=max_iterations, max_memory=max_memory,
-            initial_complexity=initial_complexity, complexity_step=complexity_step, max_complexity=max_complexity,
-            #max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
-            fail_fast=fail_fast, # bind=bind, max_failures=max_failures,
-            unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
-            visualize=visualize, verbose=verbose, **search_kwargs)
+            problem,
+            constraints=constraints,
+            stream_info=stream_info,
+            replan_actions=replan_actions,
+            unit_costs=unit_costs,
+            success_cost=success_cost,
+            max_time=max_time,
+            max_iterations=max_iterations,
+            max_memory=max_memory,
+            initial_complexity=initial_complexity,
+            complexity_step=complexity_step,
+            max_complexity=max_complexity,
+            # max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
+            fail_fast=fail_fast,  # bind=bind, max_failures=max_failures,
+            unit_efforts=unit_efforts,
+            max_effort=max_effort,
+            effort_weight=effort_weight,
+            reorder=reorder,
+            visualize=visualize,
+            verbose=verbose,
+            **search_kwargs,
+        )
 
-    if algorithm == 'binding':
+    if algorithm == "binding":
         return solve_binding(
-            problem, constraints=constraints,
-            stream_info=stream_info, replan_actions=replan_actions,
-            unit_costs=unit_costs, success_cost=success_cost,
-            max_time=max_time, max_iterations=max_iterations, max_memory=max_memory,
-            initial_complexity=initial_complexity, complexity_step=complexity_step, max_complexity=max_complexity,
-            #max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
-            fail_fast=fail_fast, # bind=bind, max_failures=max_failures,
-            unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
-            visualize=visualize, verbose=verbose, logpath = logpath, **search_kwargs)
+            problem,
+            constraints=constraints,
+            stream_info=stream_info,
+            replan_actions=replan_actions,
+            unit_costs=unit_costs,
+            success_cost=success_cost,
+            max_time=max_time,
+            max_iterations=max_iterations,
+            max_memory=max_memory,
+            initial_complexity=initial_complexity,
+            complexity_step=complexity_step,
+            max_complexity=max_complexity,
+            # max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
+            fail_fast=fail_fast,  # bind=bind, max_failures=max_failures,
+            unit_efforts=unit_efforts,
+            max_effort=max_effort,
+            effort_weight=effort_weight,
+            reorder=reorder,
+            visualize=visualize,
+            verbose=verbose,
+            logpath=logpath,
+            **search_kwargs,
+        )
 
-    if algorithm == 'adaptive':
+    if algorithm == "adaptive":
         return solve_adaptive(
-            problem, constraints=constraints,
-            stream_info=stream_info, replan_actions=replan_actions,
-            unit_costs=unit_costs, success_cost=success_cost,
-            max_time=max_time, max_iterations=max_iterations, max_memory=max_memory,
-            initial_complexity=initial_complexity, complexity_step=complexity_step, max_complexity=max_complexity,
-            max_skeletons=max_skeletons, search_sample_ratio=search_sample_ratio,
-            #bind=bind, max_failures=max_failures,
-            unit_efforts=unit_efforts, max_effort=max_effort, effort_weight=effort_weight, reorder=reorder,
-            visualize=visualize, verbose=verbose, logpath = logpath, oracle = oracle, **search_kwargs)
+            problem,
+            constraints=constraints,
+            stream_info=stream_info,
+            replan_actions=replan_actions,
+            unit_costs=unit_costs,
+            success_cost=success_cost,
+            max_time=max_time,
+            max_iterations=max_iterations,
+            max_memory=max_memory,
+            initial_complexity=initial_complexity,
+            complexity_step=complexity_step,
+            max_complexity=max_complexity,
+            max_skeletons=max_skeletons,
+            search_sample_ratio=search_sample_ratio,
+            # bind=bind, max_failures=max_failures,
+            unit_efforts=unit_efforts,
+            max_effort=max_effort,
+            effort_weight=effort_weight,
+            reorder=reorder,
+            visualize=visualize,
+            verbose=verbose,
+            logpath=logpath,
+            oracle=oracle,
+            use_unique=use_unique,
+            ** search_kwargs,
+        )
     raise NotImplementedError(algorithm)
+
 
 ##################################################
 
-def solve_restart(problem, max_time=INF, max_restarts=0, iteration_time=INF, abort=True, **kwargs):
+
+def solve_restart(
+    problem, max_time=INF, max_restarts=0, iteration_time=INF, abort=True, **kwargs
+):
     # TODO: iteratively lower the cost bound
     # TODO: a sequence of different planner configurations
     # TODO: reset objects and/or streams
@@ -161,39 +268,52 @@ def solve_restart(problem, max_time=INF, max_restarts=0, iteration_time=INF, abo
 
     assert max_restarts >= 0
     start_time = time.time()
-    for attempt in irange(1+max_restarts):
+    for attempt in irange(1 + max_restarts):
         iteration_start_time = time.time()
         if elapsed_time(start_time) > max_time:
             break
         if attempt >= 1:
             print(SEPARATOR)
-        #solution = planner_fn(problem) # Or include the problem in the lambda
-        remaining_time = min(iteration_time, max_time-elapsed_time(start_time))
+        # solution = planner_fn(problem) # Or include the problem in the lambda
+        remaining_time = min(iteration_time, max_time - elapsed_time(start_time))
         solution = solve(problem, max_time=remaining_time, **kwargs)
         plan, cost, certificate = solution
-        if is_plan(plan): # TODO: INFEASIBLE
+        if is_plan(plan):  # TODO: INFEASIBLE
             return solution
         if abort and (elapsed_time(iteration_start_time) < remaining_time):
-            break # TODO: return the cause of failure
+            break  # TODO: return the cause of failure
 
-    certificate = Certificate(all_facts=[], preimage_facts=[]) # TODO: aggregate
+    certificate = Certificate(all_facts=[], preimage_facts=[])  # TODO: aggregate
     return Solution(None, INF, certificate)
 
+
 ##################################################
+
 
 def set_unique(externals):
     for external in externals:
         external.info.opt_gen_fn = PartialInputs(unique=True)
         external.num_opt_fns = 0
 
-def examine_instantiated(problem, constraints=PlanConstraints(), unit_costs=False, unique=False, verbose=False, debug=False):
+
+def examine_instantiated(
+    problem,
+    constraints=PlanConstraints(),
+    unit_costs=False,
+    unique=False,
+    verbose=False,
+    debug=False,
+):
     # TODO: refactor to an analysis file
     domain_pddl, constant_map, stream_pddl, _, init, goal = problem
-    stream_map = DEBUG if unique else SHARED_DEBUG # DEBUG_MODES
-    problem = PDDLProblem(domain_pddl, constant_map, stream_pddl, stream_map, init, goal)
+    stream_map = DEBUG if unique else SHARED_DEBUG  # DEBUG_MODES
+    problem = PDDLProblem(
+        domain_pddl, constant_map, stream_pddl, stream_map, init, goal
+    )
 
     evaluations, goal_exp, domain, externals = parse_problem(
-        problem, constraints=constraints, unit_costs=unit_costs)
+        problem, constraints=constraints, unit_costs=unit_costs
+    )
     assert not isinstance(domain, SimplifiedDomain)
 
     # store = SolutionStore(evaluations, max_time, success_cost=INF, verbose=verbose)
@@ -201,11 +321,13 @@ def examine_instantiated(problem, constraints=PlanConstraints(), unit_costs=Fals
     # process_stream_queue(instantiator, store, complexity_limit=INF, verbose=verbose)
     # results = [] # TODO: extract from process_stream_queue
 
-    #set_unique(externals)
+    # set_unique(externals)
     # domain.actions[:] = [] # TODO: only instantiate axioms
     # TODO: drop all fluents and instantiate
     # TODO: relaxed planning version of this
-    results, exhausted = optimistic_process_streams(evaluations, externals, complexity_limit=INF, max_effort=None)
+    results, exhausted = optimistic_process_streams(
+        evaluations, externals, complexity_limit=INF, max_effort=None
+    )
 
     evaluations = evaluations_from_stream_plan(evaluations, results, max_effort=None)
     problem = get_problem(evaluations, goal_exp, domain, unit_costs)
@@ -215,28 +337,36 @@ def examine_instantiated(problem, constraints=PlanConstraints(), unit_costs=Fals
         if instantiated is None:
             return None
         # TODO: reinstantiate actions?
-        instantiated.axioms[:] = [reinstantiate_axiom(axiom) for axiom in instantiated.axioms]
+        instantiated.axioms[:] = [
+            reinstantiate_axiom(axiom) for axiom in instantiated.axioms
+        ]
         instantiated = convert_instantiated(instantiated)
     return results, instantiated
     # sas_task = sas_from_pddl(task, debug=debug)
 
+
 ##################################################
 
-INTERNAL_AXIOM = 'new-axiom'
+INTERNAL_AXIOM = "new-axiom"
+
 
 def iterate_subgoals(goals, axiom_from_effect):
     necessary = set()
     possible = set()
     for goal in goals:
         if goal in axiom_from_effect:
-            necessary.update(set.intersection(*[set(axiom.condition) for axiom in axiom_from_effect[goal]]))
-            #print(len(axiom_from_effect[goal]) == 1)  # Universal
+            necessary.update(
+                set.intersection(
+                    *[set(axiom.condition) for axiom in axiom_from_effect[goal]]
+                )
+            )
+            # print(len(axiom_from_effect[goal]) == 1)  # Universal
             for axiom in axiom_from_effect[goal]:
                 possible.update(axiom.condition)  # Add goal as well?
         else:
             necessary.add(goal)
-    print('Necessary:', necessary)
-    print('Possible:', possible - necessary)
+    print("Necessary:", necessary)
+    print("Possible:", possible - necessary)
     return possible
 
 
@@ -255,7 +385,14 @@ def recurse_subgoals(goals, condition_from_effect):
     return possible
 
 
-def analyze_goal(problem, use_actions=False, use_axioms=True, use_streams=True, blocked_predicates=[], **kwargs):
+def analyze_goal(
+    problem,
+    use_actions=False,
+    use_axioms=True,
+    use_streams=True,
+    blocked_predicates=[],
+    **kwargs,
+):
     # TODO: instantiate all goal partial states
     # TODO: remove actions/axioms that never could achieve a subgoal
     domain_pddl, constant_map, stream_pddl, stream_map, init, goal = problem
@@ -263,10 +400,12 @@ def analyze_goal(problem, use_actions=False, use_axioms=True, use_streams=True, 
     init = set(fd_from_evaluations(evaluations))
 
     # from pddlstream.algorithms.scheduling.recover_axioms import recover_axioms_plans
-    results, instantiated = examine_instantiated(problem, **kwargs) # TODO: only do if the goals are derived
+    results, instantiated = examine_instantiated(
+        problem, **kwargs
+    )  # TODO: only do if the goals are derived
     if instantiated is None:
         return None
-    #optimistic_init = set(instantiated.task.init)
+    # optimistic_init = set(instantiated.task.init)
 
     # This is like backchaining in a relaxed space
     condition_from_effect = defaultdict(set)
@@ -274,19 +413,19 @@ def analyze_goal(problem, use_actions=False, use_axioms=True, use_streams=True, 
         # TODO: selectively ignore some conditions (e.g. HandEmpty)
         for action in instantiated.actions:
             for conditional, effect in action.add_effects:
-                for condition in (action.precondition + conditional):
+                for condition in action.precondition + conditional:
                     if condition.predicate not in blocked_predicates:
                         condition_from_effect[effect].add(condition)
             for conditional, effect in action.del_effects:
-                for condition in (action.precondition + conditional):
+                for condition in action.precondition + conditional:
                     if condition.predicate not in blocked_predicates:
                         condition_from_effect[effect.negate()].add(condition)
     if use_axioms:
         # TODO: axiom_rules.handle_axioms(...)
         # print('Axioms:', instantiated.axioms)
         for axiom in instantiated.axioms:
-            #axiom = reinstantiate_axiom(axiom)
-            #axiom.dump()
+            # axiom = reinstantiate_axiom(axiom)
+            # axiom.dump()
             for condition in axiom.condition:
                 condition_from_effect[axiom.effect].add(condition)
     if use_streams:
@@ -295,15 +434,21 @@ def analyze_goal(problem, use_actions=False, use_axioms=True, use_streams=True, 
                 if get_prefix(effect) == EQ:
                     continue
                 for condition in result.domain:
-                    condition_from_effect[fd_from_fact(effect)].add(fd_from_fact(condition))
+                    condition_from_effect[fd_from_fact(effect)].add(
+                        fd_from_fact(condition)
+                    )
 
-    print('Goals:', list(map(fact_from_fd, instantiated.goal_list)))
-    #all_subgoals = iterate_subgoals(instantiated.goal_list, axiom_from_effect)
+    print("Goals:", list(map(fact_from_fd, instantiated.goal_list)))
+    # all_subgoals = iterate_subgoals(instantiated.goal_list, axiom_from_effect)
     all_subgoals = recurse_subgoals(instantiated.goal_list, condition_from_effect)
-    filtered_subgoals = [subgoal for subgoal in all_subgoals if subgoal in init] # TODO: return the goals as well?
-    external_subgoals = [value_from_obj_expression(fact_from_fd(subgoal))
-                         for subgoal in sorted(filtered_subgoals, key=lambda g: g.predicate)
-                         if not subgoal.predicate.startswith(INTERNAL_AXIOM)]
-    print('Initial:', external_subgoals)
+    filtered_subgoals = [
+        subgoal for subgoal in all_subgoals if subgoal in init
+    ]  # TODO: return the goals as well?
+    external_subgoals = [
+        value_from_obj_expression(fact_from_fd(subgoal))
+        for subgoal in sorted(filtered_subgoals, key=lambda g: g.predicate)
+        if not subgoal.predicate.startswith(INTERNAL_AXIOM)
+    ]
+    print("Initial:", external_subgoals)
 
-    return external_subgoals # TODO: decompose into simplified components
+    return external_subgoals  # TODO: decompose into simplified components
