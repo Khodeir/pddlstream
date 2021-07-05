@@ -110,7 +110,7 @@ def parse_problem(
     use_unique=False,
 ):
     # TODO: just return the problem if already written programmatically
-    # reset_globals() # Prevents use of satisfaction.py
+    reset_globals() # Prevents use of satisfaction.py
     domain_pddl, constant_map, stream_pddl, stream_map, init, goal = problem
 
     domain = parse_domain(domain_pddl)  # TODO: normalize here
