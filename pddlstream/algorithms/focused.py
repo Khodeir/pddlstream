@@ -229,6 +229,10 @@ def solve_abstract(
     disabled = set()  # Max skeletons after a solution
 
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
+    if oracle is not None:
+        oracle.set_goal_facts(goal_exp)
+        oracle.set_domain(domain)
+        oracle.set_externals(externals)
 
     while (
         (not store.is_terminated())
