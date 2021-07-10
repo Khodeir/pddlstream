@@ -230,9 +230,8 @@ def solve_abstract(
 
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     if oracle is not None:
-        oracle.set_goal_facts(goal_exp)
-        oracle.set_domain(domain)
-        oracle.set_externals(externals)
+        oracle.set_model_info(domain, externals)
+        oracle.set_problem_info(goal_exp)
 
     while (
         (not store.is_terminated())
