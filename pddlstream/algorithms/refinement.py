@@ -355,7 +355,11 @@ def iterative_plan_streams(
                 num_iterations, len(results), final_depth, is_plan(action_plan), el_time
             )
         )
+
         if store is not None:
+            if store.is_timeout():
+                status = INFEASIBLE
+                return OptSolution(status, status, cost)
             store.add_attempt_info(
                 num_iterations, len(results), final_depth, is_plan(action_plan), el_time
             )
