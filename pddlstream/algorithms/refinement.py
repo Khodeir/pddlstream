@@ -33,7 +33,7 @@ from functools import partial
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
 MAX_DEPTH = INF  # 1 | INF
-
+DEBUG = False
 
 def is_refined(stream_plan):
     # TODO: lazily expand the shared objects in some cases to prevent increase in size
@@ -59,7 +59,7 @@ def optimistic_process_instance(
         new_facts = False
         complexity = instantiator.compute_complexity(instance)
         if oracle_checker is not None:
-            if not oracle_checker(result):
+            if result.is_refined() and not oracle_checker(result):
                 return
         for fact in result.get_certified():
             new_facts |= instantiator.add_atom(evaluation_from_fact(fact), complexity)
@@ -364,7 +364,12 @@ def iterative_plan_streams(
                 num_iterations, len(results), final_depth, is_plan(action_plan), el_time
             )
         if is_plan(action_plan):
+            if oracle is not None and hasattr(oracle, 'print_stats'):
+                oracle.print_stats()
             return OptSolution(stream_plan, action_plan, cost)
+        if oracle is not None and hasattr(oracle, 'is_done') and not oracle.is_done():
+            oracle.decrease_threshold()
+            continue
         if final_depth == 0:
             status = INFEASIBLE if exhausted else FAILED
             return OptSolution(status, status, cost)

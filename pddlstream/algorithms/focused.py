@@ -363,6 +363,8 @@ def solve_abstract(
                 )
             )
             complexity_limit += complexity_step
+            if oracle is not None and hasattr(oracle, 'reset_threshold'):
+                oracle.reset_threshold()
             store.change_complexity(complexity_limit)
             if not eager_disabled:
                 reenable_disabled(evaluations, domain, disabled)
