@@ -29,6 +29,7 @@ from pddlstream.language.statistics import check_effort, compute_plan_effort
 from pddlstream.language.object import Object, OptimisticObject
 from pddlstream.utils import INF, safe_zip, get_mapping, implies, elapsed_time
 from functools import partial
+from pddlstream.algorithms.scheduling.recover_streams import Node
 
 CONSTRAIN_STREAMS = False
 CONSTRAIN_PLANS = False
@@ -91,25 +92,28 @@ def optimistic_process_streams(
         if node.complexity <= complexity_limit:
             instantiator.add_atom(evaluation, node.complexity)
     results = []
+
+    node_from_atom = get_achieving_streams(evaluations, results)
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
         # TODO: incrementally update this instead of recomputing from scratch each time.
         if oracle:
-            node_from_atom = get_achieving_streams(evaluations, results)
-            node_from_atom.update(
-                {fact_from_evaluation(e): r for e, r in evaluations.items()}
-            )
+            #node_from_atom = get_achieving_streams(evaluations, results)
+            #node_from_atom.update(evals)
+            #assert set(node_from_atom.items()) == set(our_node_from_atom.items()), "FAIL"
             current_oracle_checker = partial(
                 oracle_checker, node_from_atom=node_from_atom
             )
         else:
             current_oracle_checker = None
-        results.extend(
-            optimistic_process_instance(
-                instantiator,
-                instantiator.pop_stream(),
-                oracle_checker=current_oracle_checker,
-            )
-        )
+        new_results = list(
+                        optimistic_process_instance(
+                            instantiator,
+                            instantiator.pop_stream(),
+                            oracle_checker=current_oracle_checker,
+                        )
+                    )
+        node_from_atom.update({f:Node(0, result) for result in new_results for f in result.get_certified()})
+        results.extend(new_results)
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
     if store is not None:
