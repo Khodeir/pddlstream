@@ -93,9 +93,12 @@ def optimistic_process_streams(
     results = []
 
     node_from_atom = get_achieving_streams(evaluations, results)
-    node_from_atom.update({fact_from_evaluation(e):r for e, r in evaluations.items()})
+    evals = {fact_from_evaluation(e):r for e, r in evaluations.items()}
+    node_from_atom.update(evals)
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
         if oracle:
+            #node_from_atom = get_achieving_streams(evaluations, results)
+            #node_from_atom.update(evals)
             current_oracle_checker = partial(
                 oracle_checker, node_from_atom=node_from_atom
             )
