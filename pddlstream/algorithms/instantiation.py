@@ -1,11 +1,12 @@
 from collections import defaultdict, namedtuple, Sized
-from heapq import heappush, heappop
-from itertools import product
+from heapq import heappush, heappop, heapify
+from itertools import product, count
+import random
 
 from pddlstream.algorithms.common import COMPLEXITY_OP
 from pddlstream.algorithms.relation import compute_order, Relation, solve_satisfaction
 from pddlstream.language.constants import is_parameter
-from pddlstream.language.conversion import is_atom, head_from_fact
+from pddlstream.language.conversion import evaluation_from_fact, fact_from_evaluation, is_atom, head_from_fact
 from pddlstream.utils import safe_zip, HeapElement, safe_apply_mapping
 
 USE_RELATION = True
@@ -133,3 +134,150 @@ class Instantiator(Sized): # Dynamic Instantiator
         self.complexity_from_atom[head] = complexity
         self._add_new_instances(head)
         return True
+
+        
+ModelPriority = namedtuple('Priority', ['score', 'num_visits']) # num ensures FIFO
+class InformedInstantiator(Instantiator):
+    def __init__(self, streams, evaluations, model, verbose=False):
+        self.streams = streams
+        self.verbose = verbose
+        self.model = model
+
+        self.queue = []
+        self.num_pushes = 0 # shared between the queues
+
+        self.complexity_from_atom = {}
+        self.atoms_from_domain = defaultdict(list)
+        self.initialize_atom_map(evaluations)
+        self.optimistic_results = set()
+        self.output_object_to_results = {}
+        self.instance_history = set()
+        self.__list_results = []
+        for stream in self.streams:
+            if not stream.domain:
+                assert not stream.inputs
+                self.push_instance(stream.get_instance([]))
+
+        for atom, node in evaluations.items():
+            self.add_atom(atom, node.complexity)
+            for output_object in atom.head.args:
+                self.output_object_to_results[output_object] = None
+
+    def add_result(self, result, complexity, create_instances=True):
+        assert result not in self.optimistic_results, "Why?!"
+        assert result.stream_fact not in {r.stream_fact for r in self.optimistic_results}
+        for fact in result.get_certified():
+            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances)
+
+        if create_instances:
+            self.optimistic_results.add(result)
+            self.__list_results.append(result)
+            for o in result.output_objects:
+                self.output_object_to_results.setdefault(o, set()).add(result)
+    @property
+    def ordered_results(self):
+        remove_inds = []
+        ordered_list = []
+        for i, result in enumerate(self.__list_results):
+            if result not in self.optimistic_results:
+                remove_inds.append(i)
+            else:
+                ordered_list.append(result)
+        for index in remove_inds[::-1]:
+            self.__list_results.pop(index)
+        return ordered_list
+    def remove_result(self, result):
+        if result.instance.external.is_negated:
+            return
+        if result.instance.external.is_fluent and result.instance.fluent_facts:
+            # find the one that matches (barring fluent_facts)
+            matched = []
+            for existing_result in self.optimistic_results:
+                if (result.instance.external is existing_result.instance.external and \
+                    result.input_objects == existing_result.input_objects):
+                    matched.append(existing_result)
+            assert len(matched) == 1
+            result = matched[0]
+
+        self.optimistic_results.remove(result)
+        for o in result.output_objects:
+            self.output_object_to_results[o].remove(result)
+
+    def initialize_atom_map(self, evaluations):
+        self.atom_map = {fact_from_evaluation(f): [] for f, _ in evaluations.items()}
+
+    def pop_instance(self):
+        priority, instance = heappop(self.queue)
+        return priority, instance
+
+    def push_instance(self, instance, num_visits=0, score=None, readd=False):
+        if not readd and instance in self.instance_history:
+            """This is here because when we refine a result, we'll add its instance, without calling add_atom
+            on its parent facts. But then, later, when we pop its parent result from the queue, and compute
+            the newly possible instances, the same instance might show up again. So now readd has to be explicit."""
+            return
+        else:
+            self.instance_history.add(instance)
+        if score is None:
+            score = self.model.predict(instance, atom_map=self.atom_map, instantiator=self)
+        priority = ModelPriority(score, num_visits)
+        heappush(self.queue, HeapElement(priority, instance))
+        self.num_pushes += 1
+        if self.verbose:
+            print(self.num_pushes, instance)
+
+    def add_atom(self, atom, complexity, create_instances=True):
+        if not is_atom(atom):
+            return False
+        head = atom.head
+        if head in self.complexity_from_atom:
+            assert self.complexity_from_atom[head] <= complexity
+        else:
+            self.complexity_from_atom[head] = complexity
+        if create_instances:
+            self._add_new_instances(head)
+
+    def remove_atom(self, atom):
+        if not is_atom(atom):
+            return False
+        head = atom.head
+        del self.complexity_from_atom[head]
+        
+    def is_orphan(self, obj, cache={}):
+        if obj in cache:
+            return cache[obj]
+        results = self.output_object_to_results[obj]
+        if results is None:
+            res = False
+        elif len(results) == 0:
+            res = True
+        else:
+            res = any(
+                any(self.is_orphan(in_obj) for in_obj in result.input_objects) \
+                    for result in results
+            )
+        cache[obj] = res
+        return res
+
+    def remove_orphans(self):
+        cache = {}
+        to_remove = []
+        for stream_result in self.optimistic_results:
+            if any(
+                self.is_orphan(obj, cache) \
+                    for obj in stream_result.input_objects
+                ):
+                to_remove.append(stream_result)
+        for stream_result in to_remove:
+            self.remove_result(stream_result)
+
+        # TODO: maybe make this faster? Could just check on pop of queue.
+        for i in range(len(self.queue)):
+            instance = self.queue[i].value
+            if any(
+                self.is_orphan(obj, cache) \
+                    for obj in instance.input_objects
+                ):
+                self.queue.pop(i)
+        heapify(self.queue)
+

@@ -17,10 +17,12 @@ from pddlstream.algorithms.disable_skeleton import create_disabled_axioms
 
 # from pddlstream.algorithms.downward import has_costs
 from pddlstream.algorithms.incremental import process_stream_queue
-from pddlstream.algorithms.instantiation import Instantiator
+from pddlstream.algorithms.instantiation import Instantiator, InformedInstantiator
 from pddlstream.algorithms.refinement import (
+    is_refined,
     iterative_plan_streams,
     get_optimistic_solve_fn,
+    optimistic_stream_evaluation,
 )
 from pddlstream.algorithms.scheduling.plan_streams import OptSolution
 from pddlstream.algorithms.reorder import reorder_stream_plan
@@ -32,6 +34,7 @@ from pddlstream.algorithms.visualization import (
     log_plans,
 )
 from pddlstream.language.constants import is_plan, get_length, str_from_plan, INFEASIBLE
+from pddlstream.language.conversion import evaluation_from_fact
 from pddlstream.language.fluent import compile_fluent_streams
 from pddlstream.language.function import Function, Predicate
 from pddlstream.language.optimizer import ComponentStream
@@ -536,3 +539,111 @@ def solve_hierarchical(problem, **kwargs):
         max_failures=None,
         **kwargs,
     )
+
+def solve_informed(
+    problem, 
+    model,
+    max_time=INF,
+    max_iterations=INF,
+    max_memory=INF,
+    logpath=None,
+    verbose=False,
+    use_unique=True,
+    ** search_kwargs
+):
+    evaluations, goal_exp, domain, externals = parse_problem(
+        problem,
+        stream_info={},
+        constraints=PlanConstraints(),
+        unit_costs=False,
+        unit_efforts=False,
+        use_unique = use_unique
+    )
+
+    identify_non_producers(externals)
+    enforce_simultaneous(domain, externals)
+    compile_fluent_streams(domain, externals)
+    # load_stream_statistics(externals)
+    streams, functions, negative, optimizers = partition_externals(
+        externals, verbose=verbose
+    )
+    positive_externals = streams + functions + optimizers
+
+    optimistic_solve_fn = get_optimistic_solve_fn(
+        goal_exp,
+        domain,
+        negative,
+        max_cost=INF,
+        max_effort=INF,
+        effort_weight=None,
+        **search_kwargs,
+    )
+    success_cost = INF
+    store = SolutionStore(
+        evaluations, max_time, success_cost, verbose, max_memory=max_memory
+    )
+    skeleton_queue = SkeletonQueue(store, domain, disable=True)
+    signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
+    model.set_infos(domain, externals, goal_exp, evaluations)
+    num_iterations = 0
+    instantiator = InformedInstantiator(streams, evaluations, model) # Q
+    while (
+        (not store.is_terminated())
+        and (num_iterations < max_iterations)
+        and instantiator
+    ):
+        priority, instance = instantiator.pop_instance()
+        if instance.enumerated:
+            continue
+        for i, result in enumerate(instance.next_optimistic()):
+            assert i == 0, "Why?!"
+
+            complexity = instantiator.compute_complexity(instance)
+            instantiator.add_result(result, complexity)
+
+        # if instance.is_refined():
+            # num_visits = priority.num_visits + 1
+        #     # Never want two of the same unrefined fact in the planning problem
+        #     # and the only way for the original optimistic fact to have been removed
+        #     # is if we refined the instance, in which case we already have a new refined instance
+        #     score = reduce_score(priority.score, num_visits)
+        #     instantiator.push_instance(instance, score=score, num_visits=num_visits)
+
+        if should_plan(priority.score, instantiator.optimistic_results, instantiator):
+            stream_plan, opt_plan, _ = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
+            if not is_plan(opt_plan):
+                continue
+
+            if not is_refined(stream_plan):
+                # refine stuff
+                new_results, bindings = optimistic_stream_evaluation(evaluations, stream_plan) # \bar{psi}, B
+                bound_objects = set(bindings)
+
+                for result in stream_plan:
+                    if set(result.output_objects) <= bound_objects:
+                        instantiator.remove_result(result)
+
+                instantiator.remove_orphans()
+
+                for result in new_results:
+                    if result.instance.external.is_negated:
+                        continue
+                    instantiator.push_instance(result.instance, readd=True)
+                    # TODO: remove this forloop when we no longer need ComplexityModel
+                    complexity = instantiator.compute_complexity(result.instance)
+                    instantiator.add_result(result, complexity, create_instances=False)
+                
+                # TODO: check crappiness
+                continue
+            else:
+                print('Whaaaat')
+    assert False, "Could not find plan"
+
+
+
+def reduce_score(score, num_visits, decay_factor=0.8):
+    return score * (decay_factor**num_visits)
+
+def should_plan(score, results, instantiator):
+    return True
+    return len(results) % 10 == 0

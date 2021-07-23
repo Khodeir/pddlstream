@@ -18,6 +18,7 @@ from pddlstream.algorithms.focused import (
     solve_focused_original,
     solve_binding,
     solve_adaptive,
+    solve_informed
 )
 from pddlstream.algorithms.instantiate_task import (
     instantiate_task,
@@ -42,7 +43,7 @@ from pddlstream.language.temporal import SimplifiedDomain
 from pddlstream.utils import elapsed_time, INF, Verbose, irange, SEPARATOR
 
 FOCUSED_ALGORITHMS = ["focused", "binding", "adaptive"]
-ALGORITHMS = ["incremental"] + FOCUSED_ALGORITHMS
+ALGORITHMS = ["incremental"] + FOCUSED_ALGORITHMS + ["informed"]
 DEFAULT_ALGORITHM = "adaptive"
 
 ##################################################
@@ -249,6 +250,18 @@ def solve(
             oracle=oracle,
             use_unique=use_unique,
             ** search_kwargs,
+        )
+    if algorithm == "informed":
+        return solve_informed(
+            problem, 
+            oracle,
+            max_time=max_time,
+            max_iterations=max_iterations,
+            max_memory=max_memory,
+            logpath=logpath,
+            verbose=verbose,
+            use_unique=use_unique,
+            ** search_kwargs
         )
     raise NotImplementedError(algorithm)
 
