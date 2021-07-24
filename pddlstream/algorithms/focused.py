@@ -17,7 +17,7 @@ from pddlstream.algorithms.disable_skeleton import create_disabled_axioms
 
 # from pddlstream.algorithms.downward import has_costs
 from pddlstream.algorithms.incremental import process_stream_queue
-from pddlstream.algorithms.instantiation import Instantiator, InformedInstantiator
+from pddlstream.algorithms.instantiation import GroundedInstance, Instantiator, InformedInstantiator
 from pddlstream.algorithms.refinement import (
     is_refined,
     iterative_plan_streams,
@@ -44,7 +44,7 @@ from pddlstream.language.statistics import (
     write_stream_statistics,
     compute_plan_effort,
 )
-from pddlstream.language.stream import Stream, StreamResult
+from pddlstream.language.stream import Stream, StreamInstance, StreamResult
 from pddlstream.utils import INF, implies, str_from_object, safe_zip
 
 
@@ -549,6 +549,8 @@ def solve_informed(
     logpath=None,
     verbose=False,
     use_unique=True,
+    search_sample_ratio=1,
+    max_skeletons=INF,
     ** search_kwargs
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
@@ -582,7 +584,7 @@ def solve_informed(
     store = SolutionStore(
         evaluations, max_time, success_cost, verbose, max_memory=max_memory
     )
-    skeleton_queue = SkeletonQueue(store, domain, disable=True)
+    skeleton_queue = SkeletonQueue(store, domain, disable=False)
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     model.set_infos(domain, externals, goal_exp, evaluations)
     num_iterations = 0
@@ -590,17 +592,21 @@ def solve_informed(
     while (
         (not store.is_terminated())
         and (num_iterations < max_iterations)
-        and instantiator
+        and (instantiator or skeleton_queue.queue)
     ):
-        priority, instance = instantiator.pop_instance()
-        if instance.enumerated:
-            continue
-        for i, result in enumerate(instance.next_optimistic()):
-            assert i == 0, "Why?!"
-
-            complexity = instantiator.compute_complexity(instance)
-            instantiator.add_result(result, complexity)
-
+        if instantiator:
+            priority, instance = instantiator.pop_instance()
+            if isinstance(instance, GroundedInstance):
+                instantiator.add_result(instance.result, instance.complexity)
+            else:
+                if instance.enumerated:
+                    continue
+                for i, result in enumerate(instance.next_optimistic()):
+                    assert i == 0, "Why?!"
+                    complexity = instantiator.compute_complexity(instance)
+                    instantiator.add_result(result, complexity)
+        else:
+            print("Queue empty!")
         # if instance.is_refined():
             # num_visits = priority.num_visits + 1
         #     # Never want two of the same unrefined fact in the planning problem
@@ -610,11 +616,8 @@ def solve_informed(
         #     instantiator.push_instance(instance, score=score, num_visits=num_visits)
 
         if should_plan(priority.score, instantiator.optimistic_results, instantiator):
-            stream_plan, opt_plan, _ = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
-            if not is_plan(opt_plan):
-                continue
-
-            if not is_refined(stream_plan):
+            stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
+            if is_plan(opt_plan) and not is_refined(stream_plan):
                 # refine stuff
                 new_results, bindings = optimistic_stream_evaluation(evaluations, stream_plan) # \bar{psi}, B
                 bound_objects = set(bindings)
@@ -635,14 +638,87 @@ def solve_informed(
                 
                 # TODO: check crappiness
                 continue
+            
+            elif is_plan(opt_plan):
+                print("Found a refined plan!")
+                force_sample = True
             else:
-                print('Whaaaat')
-    assert False, "Could not find plan"
+                # not is_plan
+                force_sample = False
+        else:
+            force_sample = False
+            stream_plan = None
+
+        if force_sample or should_sample(skeleton_queue):
+            allocated_sample_time = (
+                (search_sample_ratio * store.search_time) - store.sample_time
+                if len(skeleton_queue.skeletons) <= max_skeletons
+                else INF
+            )
+            skeleton_queue.process(
+                stream_plan, opt_plan, cost, 0, allocated_sample_time
+            )
+            
+            # remove all old results that have been processed
+            grounded_instances = {r.instance for r in skeleton_queue.new_results}
+            enumerated, grounded = 0, 0
+            for result in list(instantiator.optimistic_results):
+                # newly enumerated ones
+                if result.instance.enumerated:
+                    if result.optimistic:
+                        enumerated += 1
+                        instantiator.remove_result(result)
+
+                # newly grounded ones.
+                # TODO: Do we want to remove all the optimistic results that share an instance with a newly grounded result?
+                elif result.optimistic and result.instance in grounded_instances:
+                    grounded += 1
+                    instantiator.remove_result(result)
+            print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
+            instantiator.remove_orphans()
+
+            for result in skeleton_queue.new_results:
+                if result.instance.external.is_negated or result.instance.fluent_facts:
+                    continue
+                instance = result.instance
+                complexity = result.compute_complexity(store.evaluations)
+                ground_instance = GroundedInstance(instance, result, complexity)
+                instantiator.push_grounded_instance(grounded_instance=ground_instance)
+                instantiator.add_result(result, complexity, create_instances=False)
+
+            for instance in grounded_instances:
+                if not instance.enumerated:
+                    instantiator.push_or_reduce_score(instance)
 
 
+    ################
 
-def reduce_score(score, num_visits, decay_factor=0.8):
-    return score * (decay_factor**num_visits)
+    summary = store.export_summary()
+    summary.update(
+        {
+            "iterations": num_iterations,
+            "complexity": INF,
+            "skeletons": len(skeleton_queue.skeletons),
+        }
+    )
+
+    store.change_complexity(INF)
+    store.change_evaluations(summary["evaluations"])
+    store.add_summary(summary)
+    print(
+        "Summary: {}".format(str_from_object(summary, ndigits=3))
+    )  # TODO: return the summary
+
+    write_stream_statistics(externals, verbose)
+    if not (logpath is None):
+        print(f"Logging statistics to {logpath + 'stats.json'}")
+        store.write_to_json(logpath + "stats.json")
+
+    return store.extract_solution()
+
+
+def should_sample(skeleton_queue):
+    return bool(skeleton_queue.queue)
 
 def should_plan(score, results, instantiator):
     return True

@@ -136,7 +136,7 @@ class Instantiator(Sized): # Dynamic Instantiator
         return True
 
         
-ModelPriority = namedtuple('Priority', ['score', 'num_visits']) # num ensures FIFO
+ModelPriority = namedtuple('Priority', ['score']) # num ensures FIFO
 class InformedInstantiator(Instantiator):
     def __init__(self, streams, evaluations, model, verbose=False):
         self.streams = streams
@@ -151,7 +151,7 @@ class InformedInstantiator(Instantiator):
         self.initialize_atom_map(evaluations)
         self.optimistic_results = set()
         self.output_object_to_results = {}
-        self.instance_history = set()
+        self.instance_history = {}
         self.__list_results = []
         for stream in self.streams:
             if not stream.domain:
@@ -196,12 +196,13 @@ class InformedInstantiator(Instantiator):
                 if (result.instance.external is existing_result.instance.external and \
                     result.input_objects == existing_result.input_objects):
                     matched.append(existing_result)
-            assert len(matched) == 1
+            if not matched:
+                return
             result = matched[0]
-
         self.optimistic_results.remove(result)
         for o in result.output_objects:
             self.output_object_to_results[o].remove(result)
+        # TODO: remove corresponding atoms
 
     def initialize_atom_map(self, evaluations):
         self.atom_map = {fact_from_evaluation(f): [] for f, _ in evaluations.items()}
@@ -210,17 +211,59 @@ class InformedInstantiator(Instantiator):
         priority, instance = heappop(self.queue)
         return priority, instance
 
-    def push_instance(self, instance, num_visits=0, score=None, readd=False):
+    def reduce_score(self, score, num_visits, decay_factor=0.8):
+        return score * (decay_factor**num_visits)
+
+    def find_element(self, instance):
+        # check if instance already on the queue
+        for heap_element in self.queue:
+            if heap_element.value is instance:
+                return heap_element
+        return None
+
+    def push_grounded_instance(self, grounded_instance, new_visits=1):
+        assert self.find_element(grounded_instance) is None
+        if grounded_instance.instance in self.instance_history:
+            score, num_visits = self.instance_history[grounded_instance.instance]
+        else:
+            score = self.model.predict(grounded_instance.instance, atom_map=self.atom_map, instantiator=self)
+            num_visits = 0
+        self.instance_history[grounded_instance.instance] = (score, num_visits + new_visits)
+        priority = ModelPriority(self.reduce_score(score, num_visits + new_visits))
+        heappush(self.queue, HeapElement(priority, grounded_instance))
+        self.num_pushes += 1
+
+    def push_or_reduce_score(self, instance):
+        heap_element = self.find_element(instance)
+        if heap_element is None:
+            return self.push_instance(instance, readd=True)
+
+        new_score = self.score_instance(instance)
+        heap_element.key = ModelPriority(new_score)
+        heapify(self.queue)
+
+    def score_instance(self, instance):
+        if instance in self.instance_history:
+            score, num_visits = self.instance_history[instance]
+            self.instance_history[instance] = (score, num_visits + 1)
+            score = self.reduce_score(score, num_visits + 1)
+        else:
+            score = self.model.predict(instance, atom_map=self.atom_map, instantiator=self)
+            self.instance_history[instance] = (score, 0)
+
+        return score
+
+    def push_instance(self, instance, readd=False):
         if not readd and instance in self.instance_history:
             """This is here because when we refine a result, we'll add its instance, without calling add_atom
             on its parent facts. But then, later, when we pop its parent result from the queue, and compute
             the newly possible instances, the same instance might show up again. So now readd has to be explicit."""
             return
-        else:
-            self.instance_history.add(instance)
-        if score is None:
-            score = self.model.predict(instance, atom_map=self.atom_map, instantiator=self)
-        priority = ModelPriority(score, num_visits)
+        elif instance in self.instance_history:
+            assert readd
+
+        score = self.score_instance(instance)
+        priority = ModelPriority(score)
         heappush(self.queue, HeapElement(priority, instance))
         self.num_pushes += 1
         if self.verbose:
@@ -272,12 +315,36 @@ class InformedInstantiator(Instantiator):
             self.remove_result(stream_result)
 
         # TODO: maybe make this faster? Could just check on pop of queue.
+        to_remove = []
         for i in range(len(self.queue)):
             instance = self.queue[i].value
+            if isinstance(instance, GroundedInstance):
+                continue
             if any(
                 self.is_orphan(obj, cache) \
                     for obj in instance.input_objects
                 ):
-                self.queue.pop(i)
+                to_remove.append(i)
+        for i in to_remove[::-1]:
+            self.queue.pop(i)
+        print(f'Removed {len(to_remove)} orphans')
         heapify(self.queue)
 
+class GroundedInstance:
+    def __init__(self, instance, result, complexity):
+        self.instance = instance
+        self.result = result
+        self.complexity = complexity
+    def __hash__(self):
+        return hash((self.instance, self.result))
+    def __eq__(self, other):
+        return isinstance(other, GroundedInstance) and other.instance is self.instance and other.result is self.result
+
+
+
+def should_sample(skeleton_queue):
+    return bool(skeleton_queue.queue)
+
+def should_plan(score, results, instantiator):
+    return True
+    return len(results) % 10 == 0

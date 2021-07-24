@@ -327,6 +327,7 @@ class SkeletonQueue(Sized):
         if binding.up_to_date():
             new_results, _ = process_instance(self.store, self.domain, instance, disable=self.disable)
             is_new = bool(new_results)
+            self.new_results.extend(new_results)
         for new_binding in binding.update_bindings():
             self.push_binding(new_binding)
         readd = not instance.enumerated
@@ -427,6 +428,7 @@ class SkeletonQueue(Sized):
         # TODO: AssertionError: Could not find instantiation for numeric expression: dist
 
     def process(self, stream_plan, action_plan, cost, complexity_limit, max_time=0, accelerate=False):
+        self.new_results = []
         start_time = time.time()
         if is_plan(stream_plan):
             self.new_skeleton(stream_plan, action_plan, cost)
