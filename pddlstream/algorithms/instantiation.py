@@ -45,6 +45,7 @@ class Instantiator(Sized): # Dynamic Instantiator
         # TODO: rename atom to head in most places
         self.complexity_from_atom = {}
         self.atoms_from_domain = defaultdict(list)
+        self.evaluations = evaluations
         for stream in self.streams:
             if not stream.domain:
                 assert not stream.inputs
@@ -165,15 +166,21 @@ class InformedInstantiator(Instantiator):
 
     def add_result(self, result, complexity, create_instances=True):
         assert result not in self.optimistic_results, "Why?!"
-        assert result.stream_fact not in {r.stream_fact for r in self.optimistic_results}
+        assert all(a in self.output_object_to_results for a in result.input_objects)
+        if result.stream_fact in {r.stream_fact for r in self.optimistic_results}:
+            return
         for fact in result.get_certified():
             self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances)
 
-        if create_instances:
-            self.optimistic_results.add(result)
-            self.__list_results.append(result)
-            for o in result.output_objects:
-                self.output_object_to_results.setdefault(o, set()).add(result)
+        self.optimistic_results.add(result)
+        self.__list_results.append(result)
+        for o in result.output_objects:
+            self.output_object_to_results.setdefault(o, set()).add(result)
+
+    def record_complexity(self, result, complexity):
+        for fact in result.get_certified():
+            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=False)
+
     @property
     def ordered_results(self):
         remove_inds = []
@@ -197,6 +204,7 @@ class InformedInstantiator(Instantiator):
                     result.input_objects == existing_result.input_objects):
                     matched.append(existing_result)
             if not matched:
+                print(result, 'not matched')
                 return
             result = matched[0]
         self.optimistic_results.remove(result)
@@ -273,10 +281,10 @@ class InformedInstantiator(Instantiator):
         if not is_atom(atom):
             return False
         head = atom.head
-        if head in self.complexity_from_atom:
-            assert self.complexity_from_atom[head] <= complexity
-        else:
-            self.complexity_from_atom[head] = complexity
+        # if head in self.complexity_from_atom:
+        #     assert self.complexity_from_atom[head] <= complexity
+        # else:
+        self.complexity_from_atom[head] = complexity
         if create_instances:
             self._add_new_instances(head)
 
@@ -304,15 +312,16 @@ class InformedInstantiator(Instantiator):
 
     def remove_orphans(self):
         cache = {}
-        to_remove = []
-        for stream_result in self.optimistic_results:
+        for stream_result in self.ordered_results:
             if any(
                 self.is_orphan(obj, cache) \
                     for obj in stream_result.input_objects
                 ):
-                to_remove.append(stream_result)
-        for stream_result in to_remove:
-            self.remove_result(stream_result)
+                self.remove_result(stream_result)
+                for o in stream_result.output_objects:
+                    if o in cache:
+                        del cache[o]
+            
 
         # TODO: maybe make this faster? Could just check on pop of queue.
         to_remove = []

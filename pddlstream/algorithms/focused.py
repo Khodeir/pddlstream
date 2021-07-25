@@ -589,15 +589,22 @@ def solve_informed(
     model.set_infos(domain, externals, goal_exp, evaluations)
     num_iterations = 0
     instantiator = InformedInstantiator(streams, evaluations, model) # Q
+    iteration = 0
+    visits = []
     while (
         (not store.is_terminated())
         and (num_iterations < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
+        iteration += 1
         if instantiator:
             priority, instance = instantiator.pop_instance()
+            visits.append(instance)
             if isinstance(instance, GroundedInstance):
-                instantiator.add_result(instance.result, instance.complexity)
+                result, complexity = instance.result, instance.complexity
+                for fact in result.get_certified():
+                    atom = evaluation_from_fact(fact)
+                    instantiator.add_atom(atom, complexity, create_instances=True)
             else:
                 if instance.enumerated:
                     continue
@@ -615,15 +622,17 @@ def solve_informed(
         #     score = reduce_score(priority.score, num_visits)
         #     instantiator.push_instance(instance, score=score, num_visits=num_visits)
 
-        if should_plan(priority.score, instantiator.optimistic_results, instantiator):
+        if should_plan(iteration, priority.score, instantiator.optimistic_results, instantiator):
+            print(f"Planning with {len(instantiator.optimistic_results)} results and {len(evaluations)} evaluations. Queue size: {len(instantiator.queue)}")
             stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
             if is_plan(opt_plan) and not is_refined(stream_plan):
+                print("Found UNrefined plan!")
                 # refine stuff
                 new_results, bindings = optimistic_stream_evaluation(evaluations, stream_plan) # \bar{psi}, B
                 bound_objects = set(bindings)
 
                 for result in stream_plan:
-                    if set(result.output_objects) <= bound_objects:
+                    if result.optimistic and set(result.output_objects) <= bound_objects:
                         instantiator.remove_result(result)
 
                 instantiator.remove_orphans()
@@ -631,16 +640,20 @@ def solve_informed(
                 for result in new_results:
                     if result.instance.external.is_negated:
                         continue
-                    instantiator.push_instance(result.instance, readd=True)
+
+                    instantiator.push_or_reduce_score(result.instance)
                     # TODO: remove this forloop when we no longer need ComplexityModel
-                    complexity = instantiator.compute_complexity(result.instance)
-                    instantiator.add_result(result, complexity, create_instances=False)
+                    for output_object in result.output_objects:
+                        instantiator.output_object_to_results.setdefault(output_object, set()).add(result)
+                    instantiator.record_complexity(result, complexity)
+
                 
                 # TODO: check crappiness
                 continue
             
             elif is_plan(opt_plan):
                 print("Found a refined plan!")
+                print(str_from_plan(opt_plan.action_plan))
                 force_sample = True
             else:
                 # not is_plan
@@ -649,7 +662,7 @@ def solve_informed(
             force_sample = False
             stream_plan = None
 
-        if force_sample or should_sample(skeleton_queue):
+        if force_sample or should_sample(iteration, skeleton_queue):
             allocated_sample_time = (
                 (search_sample_ratio * store.search_time) - store.sample_time
                 if len(skeleton_queue.skeletons) <= max_skeletons
@@ -674,6 +687,8 @@ def solve_informed(
                 elif result.optimistic and result.instance in grounded_instances:
                     grounded += 1
                     instantiator.remove_result(result)
+                    instantiator.push_or_reduce_score(result.instance)
+
             print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
             instantiator.remove_orphans()
 
@@ -682,13 +697,20 @@ def solve_informed(
                     continue
                 instance = result.instance
                 complexity = result.compute_complexity(store.evaluations)
+                # for fact in result.get_certified():
+                #     atom = evaluation_from_fact(fact)
+                #     instantiator.add_atom(atom, complexity, create_instances=True)
+                instantiator.record_complexity(result, complexity)
+                for output_object in result.output_objects:
+                    instantiator.output_object_to_results[output_object] = None
+
                 ground_instance = GroundedInstance(instance, result, complexity)
                 instantiator.push_grounded_instance(grounded_instance=ground_instance)
-                instantiator.add_result(result, complexity, create_instances=False)
+                # for fact in result.get_certified():
+                #     atom = evaluation_from_fact(fact)
+                #     instantiator.add_atom(atom, complexity, create_instances=False)
+                # instantiator.add_result(result, complexity, create_instances=False)
 
-            for instance in grounded_instances:
-                if not instance.enumerated:
-                    instantiator.push_or_reduce_score(instance)
 
 
     ################
@@ -716,10 +738,9 @@ def solve_informed(
 
     return store.extract_solution()
 
+def should_sample(iteration, skeleton_queue):
+    return bool(skeleton_queue.queue) and iteration % 100 == 0
 
-def should_sample(skeleton_queue):
-    return bool(skeleton_queue.queue)
-
-def should_plan(score, results, instantiator):
-    return True
-    return len(results) % 10 == 0
+def should_plan(iteration, score, results, instantiator):
+    # return True
+    return len(results) % 10 == 0 or not instantiator
