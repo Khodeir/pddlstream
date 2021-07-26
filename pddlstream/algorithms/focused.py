@@ -635,19 +635,13 @@ def solve_informed(
                     if result.optimistic and set(result.output_objects) <= bound_objects:
                         instantiator.remove_result(result)
 
-                instantiator.remove_orphans()
 
                 for result in new_results:
                     if result.instance.external.is_negated:
                         continue
-
-                    instantiator.push_or_reduce_score(result.instance)
-                    # TODO: remove this forloop when we no longer need ComplexityModel
-                    for output_object in result.output_objects:
-                        instantiator.output_object_to_results.setdefault(output_object, set()).add(result)
-                    instantiator.record_complexity(result, complexity)
-
-                
+                    complexity = instantiator.compute_complexity(result.instance) # TODO: is this right?
+                    instantiator.add_result(result, complexity, create_instances=True) # This is necessary to preserve the order of dependent results
+                    # TODO: maybe defer adding these results by adding to queue?
                 # TODO: check crappiness
                 continue
             
@@ -671,6 +665,15 @@ def solve_informed(
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
+    
+            for result in skeleton_queue.new_results:
+                if result.instance.external.is_negated or result.instance.fluent_facts:
+                    continue
+                instance = result.instance
+                complexity = result.compute_complexity(store.evaluations)
+                instantiator.record_complexity(result, complexity)
+                ground_instance = GroundedInstance(instance, result, complexity)
+                instantiator.push_grounded_instance(grounded_instance=ground_instance)
             
             # remove all old results that have been processed
             grounded_instances = {r.instance for r in skeleton_queue.new_results}
@@ -684,32 +687,14 @@ def solve_informed(
 
                 # newly grounded ones.
                 # TODO: Do we want to remove all the optimistic results that share an instance with a newly grounded result?
-                elif result.optimistic and result.instance in grounded_instances:
+                elif result.instance in grounded_instances:
                     grounded += 1
                     instantiator.remove_result(result)
-                    instantiator.push_or_reduce_score(result.instance)
+                    # TODO: the line below seems to cause the same plan to be found repeatedly
+                    # instantiator.push_or_reduce_score(result.instance)
 
             print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
-            instantiator.remove_orphans()
 
-            for result in skeleton_queue.new_results:
-                if result.instance.external.is_negated or result.instance.fluent_facts:
-                    continue
-                instance = result.instance
-                complexity = result.compute_complexity(store.evaluations)
-                # for fact in result.get_certified():
-                #     atom = evaluation_from_fact(fact)
-                #     instantiator.add_atom(atom, complexity, create_instances=True)
-                instantiator.record_complexity(result, complexity)
-                for output_object in result.output_objects:
-                    instantiator.output_object_to_results[output_object] = None
-
-                ground_instance = GroundedInstance(instance, result, complexity)
-                instantiator.push_grounded_instance(grounded_instance=ground_instance)
-                # for fact in result.get_certified():
-                #     atom = evaluation_from_fact(fact)
-                #     instantiator.add_atom(atom, complexity, create_instances=False)
-                # instantiator.add_result(result, complexity, create_instances=False)
 
 
 

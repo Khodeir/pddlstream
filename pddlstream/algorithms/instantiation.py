@@ -149,9 +149,9 @@ class InformedInstantiator(Instantiator):
 
         self.complexity_from_atom = {}
         self.atoms_from_domain = defaultdict(list)
+        self.evaluations = evaluations
         self.initialize_atom_map(evaluations)
         self.optimistic_results = set()
-        self.output_object_to_results = {}
         self.instance_history = {}
         self.__list_results = []
         for stream in self.streams:
@@ -161,12 +161,10 @@ class InformedInstantiator(Instantiator):
 
         for atom, node in evaluations.items():
             self.add_atom(atom, node.complexity)
-            for output_object in atom.head.args:
-                self.output_object_to_results[output_object] = None
+
 
     def add_result(self, result, complexity, create_instances=True):
         assert result not in self.optimistic_results, "Why?!"
-        assert all(a in self.output_object_to_results for a in result.input_objects)
         if result.stream_fact in {r.stream_fact for r in self.optimistic_results}:
             return
         for fact in result.get_certified():
@@ -174,8 +172,7 @@ class InformedInstantiator(Instantiator):
 
         self.optimistic_results.add(result)
         self.__list_results.append(result)
-        for o in result.output_objects:
-            self.output_object_to_results.setdefault(o, set()).add(result)
+
 
     def record_complexity(self, result, complexity):
         for fact in result.get_certified():
@@ -183,16 +180,36 @@ class InformedInstantiator(Instantiator):
 
     @property
     def ordered_results(self):
-        remove_inds = []
-        ordered_list = []
-        for i, result in enumerate(self.__list_results):
+        queue = list(enumerate(self.__list_results))
+        evals = set(self.evaluations)
+        ordered_inds = []
+        ordered_results = []
+        deferred = set()
+        orphaned = []
+        while queue:
+            (i, result) = queue.pop(0)
             if result not in self.optimistic_results:
-                remove_inds.append(i)
+                continue
+            domain = set(map(evaluation_from_fact, result.instance.get_domain()))
+            if domain <= evals:
+                ordered_results.append(result)
+                ordered_inds.append(i)
+                evals.update(map(evaluation_from_fact, result.get_certified()))
             else:
-                ordered_list.append(result)
-        for index in remove_inds[::-1]:
-            self.__list_results.pop(index)
-        return ordered_list
+                # assert result not in deferred, "Found an orphaned stream result"
+                if result in deferred:
+                    # print("Removed orphaned result", result)
+                    orphaned.append(result)
+                else:
+                    queue.append((i, result))
+                    deferred.add(result)
+
+        self.__list_results = [self.__list_results[i] for i in ordered_inds] # update order
+        for result in orphaned:
+            self.remove_result(result)
+        print(f'Removed {len(orphaned)} orphaned results')
+        return ordered_results
+
     def remove_result(self, result):
         if result.instance.external.is_negated:
             return
@@ -208,8 +225,7 @@ class InformedInstantiator(Instantiator):
                 return
             result = matched[0]
         self.optimistic_results.remove(result)
-        for o in result.output_objects:
-            self.output_object_to_results[o].remove(result)
+
         # TODO: remove corresponding atoms
 
     def initialize_atom_map(self, evaluations):
@@ -294,50 +310,8 @@ class InformedInstantiator(Instantiator):
         head = atom.head
         del self.complexity_from_atom[head]
         
-    def is_orphan(self, obj, cache={}):
-        if obj in cache:
-            return cache[obj]
-        results = self.output_object_to_results[obj]
-        if results is None:
-            res = False
-        elif len(results) == 0:
-            res = True
-        else:
-            res = any(
-                any(self.is_orphan(in_obj) for in_obj in result.input_objects) \
-                    for result in results
-            )
-        cache[obj] = res
-        return res
 
-    def remove_orphans(self):
-        cache = {}
-        for stream_result in self.ordered_results:
-            if any(
-                self.is_orphan(obj, cache) \
-                    for obj in stream_result.input_objects
-                ):
-                self.remove_result(stream_result)
-                for o in stream_result.output_objects:
-                    if o in cache:
-                        del cache[o]
-            
 
-        # TODO: maybe make this faster? Could just check on pop of queue.
-        to_remove = []
-        for i in range(len(self.queue)):
-            instance = self.queue[i].value
-            if isinstance(instance, GroundedInstance):
-                continue
-            if any(
-                self.is_orphan(obj, cache) \
-                    for obj in instance.input_objects
-                ):
-                to_remove.append(i)
-        for i in to_remove[::-1]:
-            self.queue.pop(i)
-        print(f'Removed {len(to_remove)} orphans')
-        heapify(self.queue)
 
 class GroundedInstance:
     def __init__(self, instance, result, complexity):
