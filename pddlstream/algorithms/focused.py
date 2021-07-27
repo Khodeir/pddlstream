@@ -584,7 +584,7 @@ def solve_informed(
     store = SolutionStore(
         evaluations, max_time, success_cost, verbose, max_memory=max_memory
     )
-    skeleton_queue = SkeletonQueue(store, domain, disable=False)
+    skeleton_queue = SkeletonQueue(store, domain, disable=True)
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     model.set_infos(domain, externals, goal_exp, evaluations)
     num_iterations = 0
@@ -647,7 +647,10 @@ def solve_informed(
             
             elif is_plan(opt_plan):
                 print("Found a refined plan!")
-                print(str_from_plan(opt_plan.action_plan))
+                print('Length', len(opt_plan.action_plan))
+                for action in opt_plan.action_plan:
+                    print('\t', action.name, [o.pddl for o in action.args])
+
                 force_sample = True
             else:
                 # not is_plan
@@ -657,11 +660,12 @@ def solve_informed(
             stream_plan = None
 
         if force_sample or should_sample(iteration, skeleton_queue):
-            allocated_sample_time = (
-                (search_sample_ratio * store.search_time) - store.sample_time
-                if len(skeleton_queue.skeletons) <= max_skeletons
-                else INF
-            )
+            # allocated_sample_time = (
+            #     (search_sample_ratio * store.search_time) - store.sample_time
+            #     if len(skeleton_queue.skeletons) <= max_skeletons
+            #     else INF
+            # )
+            allocated_sample_time = 5
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
@@ -691,7 +695,7 @@ def solve_informed(
                     grounded += 1
                     instantiator.remove_result(result)
                     # TODO: the line below seems to cause the same plan to be found repeatedly
-                    # instantiator.push_or_reduce_score(result.instance)
+                    instantiator.push_or_reduce_score(result.instance)
 
             print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
 
@@ -724,7 +728,7 @@ def solve_informed(
     return store.extract_solution()
 
 def should_sample(iteration, skeleton_queue):
-    return bool(skeleton_queue.queue) and iteration % 100 == 0
+    return bool(skeleton_queue.queue) and iteration % 10 == 0
 
 def should_plan(iteration, score, results, instantiator):
     # return True

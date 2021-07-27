@@ -328,6 +328,10 @@ class SkeletonQueue(Sized):
             new_results, _ = process_instance(self.store, self.domain, instance, disable=self.disable)
             is_new = bool(new_results)
             self.new_results.extend(new_results)
+            for result in new_results:
+                self.all_results.append((result, 'success'))
+            if not is_new:
+                self.all_results.append((binding.result, 'fail'))
         for new_binding in binding.update_bindings():
             self.push_binding(new_binding)
         readd = not instance.enumerated
@@ -429,6 +433,7 @@ class SkeletonQueue(Sized):
 
     def process(self, stream_plan, action_plan, cost, complexity_limit, max_time=0, accelerate=False):
         self.new_results = []
+        self.all_results = []
         start_time = time.time()
         if is_plan(stream_plan):
             self.new_skeleton(stream_plan, action_plan, cost)

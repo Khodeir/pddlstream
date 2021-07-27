@@ -227,6 +227,18 @@ class InformedInstantiator(Instantiator):
         self.optimistic_results.remove(result)
 
         # TODO: remove corresponding atoms
+        for fact in result.get_certified():
+            self.remove_atom(evaluation_from_fact(fact))
+
+    def remove_atom(self, atom):
+        if not is_atom(atom):
+            return False
+        head = atom.head
+        # if head in self.complexity_from_atom:
+        #     del self.complexity_from_atom[head]
+        for value_list in self.atoms_from_domain.values():
+            if head in value_list:
+                value_list.remove(head)
 
     def initialize_atom_map(self, evaluations):
         self.atom_map = {fact_from_evaluation(f): [] for f, _ in evaluations.items()}
@@ -235,8 +247,8 @@ class InformedInstantiator(Instantiator):
         priority, instance = heappop(self.queue)
         return priority, instance
 
-    def reduce_score(self, score, num_visits, decay_factor=0.8):
-        return score * (decay_factor**num_visits)
+    def reduce_score(self, score, num_visits, decay_factor=2):
+        return score + num_visits
 
     def find_element(self, instance):
         # check if instance already on the queue
@@ -304,11 +316,6 @@ class InformedInstantiator(Instantiator):
         if create_instances:
             self._add_new_instances(head)
 
-    def remove_atom(self, atom):
-        if not is_atom(atom):
-            return False
-        head = atom.head
-        del self.complexity_from_atom[head]
         
 
 

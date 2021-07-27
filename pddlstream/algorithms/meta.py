@@ -261,6 +261,7 @@ def solve(
             logpath=logpath,
             verbose=verbose,
             use_unique=use_unique,
+            search_sample_ratio=search_sample_ratio,
             ** search_kwargs
         )
     raise NotImplementedError(algorithm)
