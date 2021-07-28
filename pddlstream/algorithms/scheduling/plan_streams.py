@@ -254,6 +254,7 @@ def recover_stream_plan(evaluations, current_plan, opt_evaluations, goal_express
     preimage_facts = {fact_from_fd(l) for l in full_preimage if (l.predicate != EQ) and not l.negated}
     # Saving preimage to store
     store.last_preimage = (preimage_facts | set([fact for stream_instance in stream_plan for fact in stream_instance.get_certified()]))
+    #store.record_preimage(store.last_preimage)
     store.last_node_from_atom = node_from_atom
     for negative_result in negative_plan: # TODO: function_plan
         preimage_facts.update(negative_result.get_certified())

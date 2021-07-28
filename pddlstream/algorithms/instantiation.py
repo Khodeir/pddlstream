@@ -1,6 +1,8 @@
 from collections import defaultdict, namedtuple, Sized
 from heapq import heappush, heappop, heapify
 from itertools import product, count
+from learning.gnn.data import fact_to_relevant_actions
+from learning.pddlstream_utils import fact_to_pddl, obj_to_pddl
 import random
 
 from pddlstream.algorithms.common import COMPLEXITY_OP
@@ -112,15 +114,19 @@ class Instantiator(Sized): # Dynamic Instantiator
             self.push_instance(stream.get_instance(input_objects))
 
     def _add_new_instances(self, new_atom):
+        """
+        Given a new fact (new_atom) , add all new stream instances
+        that can be instantiated with that fact
+        """
         for s_idx, stream in enumerate(self.streams):
             for d_idx, domain_fact in enumerate(stream.domain):
                 domain_atom = head_from_fact(domain_fact)
-                if is_instance(new_atom, domain_atom):
+                if is_instance(new_atom, domain_atom): # if the new atom is in the domain of this stream
                     # TODO: handle domain constants more intelligently
                     self.atoms_from_domain[s_idx, d_idx].append(new_atom)
                     atoms = [self.atoms_from_domain[s_idx, d2_idx] if d_idx != d2_idx else [new_atom]
-                              for d2_idx in range(len(stream.domain))]
-                    if USE_RELATION:
+                              for d2_idx in range(len(stream.domain))] # get all possible atoms that can take the other spots in the domain of the stream
+                    if USE_RELATION: #TODO: figure out what USE_RELATION is doing
                         self._add_combinations_relation(stream, atoms)
                     else:
                         self._add_combinations(stream, atoms)
@@ -147,28 +153,41 @@ class InformedInstantiator(Instantiator):
         self.queue = []
         self.num_pushes = 0 # shared between the queues
 
-        self.complexity_from_atom = {}
-        self.atoms_from_domain = defaultdict(list)
-        self.evaluations = evaluations
-        self.initialize_atom_map(evaluations)
-        self.optimistic_results = set()
-        self.instance_history = {}
+        self.complexity_from_atom = {} # map from atom to complexity
+        self.atoms_from_domain = defaultdict(list) # a map from (stream_index, domain_fact_index) to a list of all atoms that fit there
+        self.evaluations = evaluations # aka grounded stream results
+        self.atom_map = {}
+        #self.initialize_atom_map(evaluations) # map from fact to it's parent facts
+        self.optimistic_results = set() # set of optimistic results
+        self.instance_history = {} # TODO: figure out what this is. Map from instance to num calls?
         self.__list_results = []
-        for stream in self.streams:
+        self.stream_map = {} # map from fact to the stream that created it
+        self.obj_to_stream_map = {} # map from obj to the stream that created it
+        for stream in self.streams: #TODO: figure out what this is doing
             if not stream.domain:
                 assert not stream.inputs
                 self.push_instance(stream.get_instance([]))
 
         for atom, node in evaluations.items():
-            self.add_atom(atom, node.complexity)
+            self.add_atom(atom, node.complexity, domain_facts = [])
+            fact = fact_from_evaluation(atom)
+            self.stream_map[fact_to_pddl(fact)] = None
 
 
     def add_result(self, result, complexity, create_instances=True):
         assert result not in self.optimistic_results, "Why?!"
-        if result.stream_fact in {r.stream_fact for r in self.optimistic_results}:
+        if result.stream_fact in {r.stream_fact for r in self.optimistic_results}: # ensure we arn not adding this result twice
             return
         for fact in result.get_certified():
-            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances)
+            domain_facts = [f for f in result.domain] if (create_instances and result.is_refined()) else None
+            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances, domain_facts = domain_facts)
+            if result in self.atom_map:
+                self.stream_map[fact_to_pddl(fact)] = result.external.name
+                for r in result.output_objects:
+                    self.obj_to_stream_map[obj_to_pddl(r)] = {
+                        "name": result.name,
+                        "input_objects": [obj_to_pddl(f) for f in result.input_objects]
+                    }
 
         self.optimistic_results.add(result)
         self.__list_results.append(result)
@@ -227,7 +246,14 @@ class InformedInstantiator(Instantiator):
         self.optimistic_results.remove(result)
 
         # TODO: remove corresponding atoms
+        for obj in result.output_objects:
+            pddl = obj_to_pddl(obj)
+            if pddl in self.obj_to_stream_map:
+                del self.obj_to_stream_map[pddl]
         for fact in result.get_certified():
+            pddl = fact_to_pddl(fact)
+            if pddl in self.stream_map:
+                del self.stream_map[pddl]
             self.remove_atom(evaluation_from_fact(fact))
 
     def remove_atom(self, atom):
@@ -236,6 +262,9 @@ class InformedInstantiator(Instantiator):
         head = atom.head
         # if head in self.complexity_from_atom:
         #     del self.complexity_from_atom[head]
+        fact = fact_from_evaluation(atom)
+        if fact in self.atom_map:
+            del self.atom_map[fact]
         for value_list in self.atoms_from_domain.values():
             if head in value_list:
                 value_list.remove(head)
@@ -305,15 +334,37 @@ class InformedInstantiator(Instantiator):
         if self.verbose:
             print(self.num_pushes, instance)
 
-    def add_atom(self, atom, complexity, create_instances=True):
-        if not is_atom(atom):
+    def add_atom(self, atom, complexity, create_instances=True, domain_facts = None):
+        """
+        Add a fact to this instantiator.  
+
+        Params:
+            atom: The atom/fact to be added
+            complexity: the complexity level of the atom
+            create_instances: if True, then the instantiator will add all new
+                stream instances that can be instantiated with the new
+                fact
+            domain_facts: Provide a list of the domain facts (as atoms)
+                if you want this atom to be added to the atom map
+                (iff create_instances)
+        """
+
+        # TODO: why is the atom map not modified here?
+        if not is_atom(atom): 
             return False
         head = atom.head
         # if head in self.complexity_from_atom:
         #     assert self.complexity_from_atom[head] <= complexity
         # else:
+        assert domain_facts is None or create_instances, "atom is only added to atom map if create_instances is True"
         self.complexity_from_atom[head] = complexity
+
         if create_instances:
+            if domain_facts is not None:
+                fact = fact_from_evaluation(atom)
+                assert fact not in self.atom_map, "This atom is already in the atom map"
+                if all([d in self.atom_map for d in domain_facts]):
+                    self.atom_map[fact] = domain_facts
             self._add_new_instances(head)
 
         

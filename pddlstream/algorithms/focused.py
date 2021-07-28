@@ -1,4 +1,5 @@
 from __future__ import print_function
+import os
 
 import time
 import sys
@@ -46,6 +47,7 @@ from pddlstream.language.statistics import (
 )
 from pddlstream.language.stream import Stream, StreamInstance, StreamResult
 from pddlstream.utils import INF, implies, str_from_object, safe_zip
+from learning.visualization import visualize_atom_map
 
 
 def get_negative_externals(externals):
@@ -540,6 +542,7 @@ def solve_hierarchical(problem, **kwargs):
         **kwargs,
     )
 
+#TODO: the atom map is not being modified by the instantiator
 def solve_informed(
     problem, 
     model,
@@ -551,6 +554,7 @@ def solve_informed(
     use_unique=True,
     search_sample_ratio=1,
     max_skeletons=INF,
+    visualize_atom_maps = True,
     ** search_kwargs
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
@@ -611,7 +615,7 @@ def solve_informed(
                 for i, result in enumerate(instance.next_optimistic()):
                     assert i == 0, "Why?!"
                     complexity = instantiator.compute_complexity(instance)
-                    instantiator.add_result(result, complexity)
+                    instantiator.add_result(result, complexity, create_instances = True)
         else:
             print("Queue empty!")
         # if instance.is_refined():
@@ -624,6 +628,8 @@ def solve_informed(
 
         if should_plan(iteration, priority.score, instantiator.optimistic_results, instantiator):
             print(f"Planning with {len(instantiator.optimistic_results)} results and {len(evaluations)} evaluations. Queue size: {len(instantiator.queue)}")
+            if visualize_atom_maps:
+                visualize_atom_map(instantiator.atom_map, os.path.join(logpath, f"atom_map_iter_{iteration}.html"))
             stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found UNrefined plan!")
@@ -648,8 +654,17 @@ def solve_informed(
             elif is_plan(opt_plan):
                 print("Found a refined plan!")
                 print('Length', len(opt_plan.action_plan))
+                prev_name = ""
+                wrong = False
                 for action in opt_plan.action_plan:
+                    if action.name == prev_name:
+                        wrong = True
+                        print("Someting is wrong")
                     print('\t', action.name, [o.pddl for o in action.args])
+                    prev_name = action.name
+
+                if wrong:
+                    print("Something is wrong with this optimistic plan")
 
                 force_sample = True
             else:
@@ -699,9 +714,6 @@ def solve_informed(
 
             print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
 
-
-
-
     ################
 
     summary = store.export_summary()
@@ -723,13 +735,22 @@ def solve_informed(
     write_stream_statistics(externals, verbose)
     if not (logpath is None):
         print(f"Logging statistics to {logpath + 'stats.json'}")
-        store.write_to_json(logpath + "stats.json")
+        store.write_to_json(os.path.join(logpath, "stats.json"))
 
     return store.extract_solution()
 
 def should_sample(iteration, skeleton_queue):
-    return bool(skeleton_queue.queue) and iteration % 10 == 0
+    return False
+    #return bool(skeleton_queue.queue) and iteration % 100 == 0
 
+
+last_seen = -1
 def should_plan(iteration, score, results, instantiator):
-    # return True
+    #return True
+    #global last_seen
+    #if score > last_seen:
+    #    last_seen = score
+    #    return True
+    #else:
+    #    return not bool(len(instantiator.queue))
     return len(results) % 10 == 0 or not instantiator
