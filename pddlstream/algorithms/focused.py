@@ -1,10 +1,11 @@
 from __future__ import print_function
+from heapq import heappush, heappop, heapify
 import os
 
 import time
 import sys
 import signal
-from functools import partial
+from functools import partial, reduce
 from pddlstream.algorithms.algorithm import parse_problem
 from pddlstream.algorithms.advanced import enforce_simultaneous, identify_non_producers
 from pddlstream.algorithms.common import SolutionStore
@@ -18,7 +19,14 @@ from pddlstream.algorithms.disable_skeleton import create_disabled_axioms
 
 # from pddlstream.algorithms.downward import has_costs
 from pddlstream.algorithms.incremental import process_stream_queue
-from pddlstream.algorithms.instantiation import GroundedInstance, Instantiator, InformedInstantiator
+from pddlstream.algorithms.instantiation import (
+    GroundedInstance,
+    HashableStreamResult,
+    Instantiator,
+    InformedInstantiator,
+    ResultInstantiator,
+    make_hashable,
+)
 from pddlstream.algorithms.refinement import (
     is_refined,
     iterative_plan_streams,
@@ -46,7 +54,7 @@ from pddlstream.language.statistics import (
     compute_plan_effort,
 )
 from pddlstream.language.stream import Stream, StreamInstance, StreamResult
-from pddlstream.utils import INF, implies, str_from_object, safe_zip
+from pddlstream.utils import HeapElement, INF, implies, str_from_object, safe_zip
 from learning.visualization import visualize_atom_map
 
 
@@ -146,7 +154,7 @@ def solve_abstract(
     verbose=True,
     logpath=None,
     oracle=None,
-    use_unique = False,
+    use_unique=False,
     **search_kwargs,
 ):
     """
@@ -202,7 +210,7 @@ def solve_abstract(
         constraints=constraints,
         unit_costs=unit_costs,
         unit_efforts=unit_efforts,
-        use_unique = use_unique,
+        use_unique=use_unique,
     )
     identify_non_producers(externals)
     enforce_simultaneous(domain, externals)
@@ -494,7 +502,7 @@ def solve_adaptive(
     search_sample_ratio=1,
     logpath=None,
     oracle=None,
-    use_unique = False,
+    use_unique=False,
     **kwargs,
 ):
     """
@@ -518,7 +526,7 @@ def solve_adaptive(
         max_failures=None,
         logpath=logpath,
         oracle=oracle,
-        use_unique = use_unique,
+        use_unique=use_unique,
         **kwargs,
     )
 
@@ -542,9 +550,116 @@ def solve_hierarchical(problem, **kwargs):
         **kwargs,
     )
 
-#TODO: the atom map is not being modified by the instantiator
-def solve_informed(
-    problem, 
+class ResultQueue:
+
+    def __init__(self):
+        self.Q = []
+        self.results = set()
+
+    def push_result(self, new_result, score):
+        heappush(
+            self.Q,
+            HeapElement(
+                score,
+                new_result
+            ),
+        )
+        self.results.add(new_result)
+
+    def pop_result(self):
+        score, result = heappop(self.Q)
+        self.results.remove(result)
+        return score, result
+
+    def __contains__(self, result):
+        return result in self.results
+
+    def __len__(self):
+        return len(self.Q)
+
+def should_planV2(iteration, Q):
+    return True
+    return (iteration % 1 == 0) or (len(Q) == 0)
+
+class OptimisticResults:
+
+    def __init__(self):
+        self.results = set()
+        self.__list_results = []
+
+    def add(self, result):
+        if result.stream_fact in {r.stream_fact for r in self.results}:
+            return
+        self.results.add(result)
+        self.__list_results.append(result)
+
+    def get_ordered_results(self, evaluations):
+        queue = list(enumerate(self.__list_results))
+        evals = set(evaluations)
+        ordered_inds = []
+        ordered_results = []
+        deferred = set()
+        orphaned = []
+        while queue:
+            (i, result) = queue.pop(0)
+            if result not in self.results:
+                continue
+            domain = set(map(evaluation_from_fact, result.instance.get_domain()))
+            if domain <= evals:
+                ordered_results.append(result)
+                ordered_inds.append(i)
+                evals.update(map(evaluation_from_fact, result.get_certified()))
+            else:
+                # assert result not in deferred, "Found an orphaned stream result"
+                if result in deferred:
+                    # print("Removed orphaned result", result)
+                    orphaned.append(result)
+                else:
+                    queue.append((i, result))
+                    deferred.add(result)
+
+        self.__list_results = [self.__list_results[i] for i in ordered_inds] # update order
+        for result in orphaned:
+            self.remove_result(result)
+        print(f'Removed {len(orphaned)} orphaned results')
+        return ordered_results
+
+    def remove_result(self, result):
+        if result.instance.external.is_negated:
+            return
+        if result.instance.external.is_fluent and result.instance.fluent_facts:
+            matched = []
+            for existing_result in self.results:
+                if (result.instance.external is existing_result.instance.external and \
+                    result.input_objects == existing_result.input_objects):
+                    matched.append(existing_result)
+            if not matched:
+                print(result, 'not matched')
+                return
+            assert len(matched) == 1, "matched more than one result"
+            result = matched[0]
+        self.results.remove(result)
+    
+    def __len__(self):
+        return len(self.results)
+
+def reduce_score(score, num_visits, gamma = 0.8):
+    return (gamma**num_visits)*score
+
+def get_score_and_update_visits(instance_history, result, model, node_from_atom):
+    # can't just use setdefault because it is not lazy
+    instance = result.instance
+    if instance in instance_history:
+        score, num_visits = instance_history[instance]
+        instance_history[instance] = (score, num_visits + 1)
+    else:
+        score = -model.predict(result, node_from_atom)
+        num_visits = 0
+        instance_history[instance] = (score, num_visits +1)
+    return score, num_visits
+
+def solve_informedV2(
+    problem,
     model,
     max_time=INF,
     max_iterations=INF,
@@ -554,8 +669,8 @@ def solve_informed(
     use_unique=True,
     search_sample_ratio=1,
     max_skeletons=INF,
-    visualize_atom_maps = True,
-    ** search_kwargs
+    visualize_atom_maps=False,
+    **search_kwargs,
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
         problem,
@@ -563,7 +678,212 @@ def solve_informed(
         constraints=PlanConstraints(),
         unit_costs=False,
         unit_efforts=False,
-        use_unique = use_unique
+        use_unique=use_unique,
+    )
+    # evaluations is a map from Evaluation(fact) to Node(complexity, result)
+    identify_non_producers(externals)
+    enforce_simultaneous(domain, externals)
+    compile_fluent_streams(domain, externals)
+    streams, functions, negative, optimizers = partition_externals(
+        externals, verbose=verbose
+    )
+    optimistic_solve_fn = get_optimistic_solve_fn(
+        goal_exp,
+        domain,
+        negative,
+        max_cost=INF,
+        max_effort=INF,
+        effort_weight=None,
+        **search_kwargs,
+    )
+    success_cost = INF
+    store = SolutionStore(
+        evaluations, max_time, success_cost, verbose, max_memory=max_memory
+    )
+    skeleton_queue = SkeletonQueue(store, domain, disable=True)
+    signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
+    model.set_infos(domain, externals, goal_exp, evaluations)
+    iteration = 0
+
+    instantiator = ResultInstantiator(streams)
+    Q = ResultQueue()
+
+    instance_history = {} # map from result to (original_score, num_visits)
+    for opt_result in instantiator.initialize_results(evaluations):
+        score = -model.predict(opt_result, instantiator.node_from_atom)
+        Q.push_result(opt_result, score)
+        instance_history[opt_result.instance] = (score, 1)
+
+    I_star = OptimisticResults()
+
+    while (
+        (not store.is_terminated())
+        and (iteration < max_iterations)
+        and (instantiator or skeleton_queue.queue)
+    ):
+        iteration += 1
+        print(f"Q length: {len(Q)}")
+        if len(Q) > 0:
+            score, result = Q.pop_result()
+            I_star.add(result)
+            new_results = instantiator.add_certified_from_result(result)
+            for new_result in new_results:
+                if new_result in Q:
+                    continue # do not re-add here
+                score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom)
+                # TODO: should score be reduced here?
+                Q.push_result(new_result, score)
+        else:
+            print("QUEUE EMPTY")
+
+        if should_planV2(iteration, Q):
+            print(
+                f"Planning with {len(I_star)} optimistic results and {len(evaluations)} grounded results"
+            )
+            ordered_results = I_star.get_ordered_results(evaluations)
+            stream_plan, opt_plan, cost = optimistic_solve_fn(
+                evaluations, ordered_results, None, store=store
+            )  # psi, pi*
+            if is_plan(opt_plan) and not is_refined(stream_plan):
+                print("Found Unrefined Plan")
+                new_results, bindings = optimistic_stream_evaluation(
+                    evaluations, stream_plan
+                )  # \bar{psi}, B
+                bound_objects = set(bindings)
+                for result in stream_plan:
+                    if (
+                        result.optimistic
+                        and set(result.output_objects) <= bound_objects
+                    ):
+                        # i know this design is slower, but I am making this explicit to start
+                        I_star.remove_result(result)
+                        instantiator.remove_certified_from_result(result)
+                for result in new_results:
+                    result = make_hashable(result)
+                    if (result.instance.external.is_negated) or (result in Q):
+                        continue
+                    score, _ = get_score_and_update_visits(
+                        instance_history, result, model, instantiator.node_from_atom
+                    )
+                    # TODO: add on queue or instantiate everything?
+                    Q.push_result(result, score)
+                
+                continue
+            elif is_plan(opt_plan):
+                print_refined_plan(opt_plan)
+                force_sample = True
+
+            else:
+                force_sample = False
+
+        if force_sample:
+            print("Sampling")
+
+            allocated_sample_time = (
+                (search_sample_ratio * store.search_time) - store.sample_time
+                if len(skeleton_queue.skeletons) <= max_skeletons
+                else INF
+            )
+            skeleton_queue.process(
+                stream_plan, opt_plan, cost, 0, allocated_sample_time
+            )
+            grounded_instances = set()
+            for result in skeleton_queue.new_results:
+                result = make_hashable(result)
+                grounded_instances.add(result.instance)
+                if result.instance.external.is_negated or result.instance.fluent_facts:
+                    continue
+                # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
+                score, num_visits = get_score_and_update_visits(
+                    instance_history, result, model, instantiator.node_from_atom
+                )
+                score = reduce_score(score, num_visits) 
+                Q.push_result(result, score)
+
+            enumerated, grounded = 0, 0
+            for result in list(I_star.results):
+                if result.instance.enumerated:
+                    if result.optimistic:
+                        enumerated += 1
+                        I_star.remove_result(result)
+                        instantiator.remove_certified_from_result(result)
+
+                elif result.instance in grounded_instances: # instance is not enumerated, add back an optimistic result
+                    # is the nessecary?
+                    grounded += 1
+                    I_star.remove_result(result)
+                    instantiator.remove_certified_from_result(result)
+                    score, num_visits = get_score_and_update_visits(
+                        instance_history, result, model, instantiator.node_from_atom
+                    )
+                    score = reduce_score(score, num_visits) 
+                    Q.push_result(result, score)
+
+            print(
+                f"Removed {grounded} grounded and {enumerated} enumerated optimistic results"
+            )
+
+    ################
+
+    summary = store.export_summary()
+    summary.update(
+        {
+            "iterations": iteration,
+            "complexity": INF,
+            "skeletons": len(skeleton_queue.skeletons),
+        }
+    )
+
+    store.change_complexity(INF)
+    store.change_evaluations(summary["evaluations"])
+    store.add_summary(summary)
+    print(
+        "Summary: {}".format(str_from_object(summary, ndigits=3))
+    )  # TODO: return the summary
+
+    write_stream_statistics(externals, verbose)
+    if not (logpath is None):
+        print(f"Logging statistics to {logpath + 'stats.json'}")
+        store.write_to_json(os.path.join(logpath, "stats.json"))
+
+    return store.extract_solution()
+
+def print_refined_plan(opt_plan):   
+    print("Found a refined plan!")
+    print("Length", len(opt_plan.action_plan))
+    prev_name = ""
+    wrong = False
+    for action in opt_plan.action_plan:
+        if action.name == prev_name:
+            wrong = True
+        print("\t", action.name, [o.pddl for o in action.args])
+        prev_name = action.name
+
+    if wrong:
+        print("This plan is NON-OPTIMAL")
+
+# TODO: the atom map is not being modified by the instantiator
+def solve_informed(
+    problem,
+    model,
+    max_time=INF,
+    max_iterations=INF,
+    max_memory=INF,
+    logpath=None,
+    verbose=False,
+    use_unique=True,
+    search_sample_ratio=1,
+    max_skeletons=INF,
+    visualize_atom_maps=False,
+    **search_kwargs,
+):
+    evaluations, goal_exp, domain, externals = parse_problem(
+        problem,
+        stream_info={},
+        constraints=PlanConstraints(),
+        unit_costs=False,
+        unit_efforts=False,
+        use_unique=use_unique,
     )
 
     identify_non_producers(externals)
@@ -592,7 +912,7 @@ def solve_informed(
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     model.set_infos(domain, externals, goal_exp, evaluations)
     num_iterations = 0
-    instantiator = InformedInstantiator(streams, evaluations, model) # Q
+    instantiator = InformedInstantiator(streams, evaluations, model)  # Q
     iteration = 0
     visits = []
     while (
@@ -615,52 +935,70 @@ def solve_informed(
                 for i, result in enumerate(instance.next_optimistic()):
                     assert i == 0, "Why?!"
                     complexity = instantiator.compute_complexity(instance)
-                    instantiator.add_result(result, complexity, create_instances = True)
+                    instantiator.add_result(result, complexity, create_instances=True)
+                    # TODO: should there not be a push_instance here to push all the new instances on the queue
         else:
             print("Queue empty!")
         # if instance.is_refined():
-            # num_visits = priority.num_visits + 1
+        # num_visits = priority.num_visits + 1
         #     # Never want two of the same unrefined fact in the planning problem
         #     # and the only way for the original optimistic fact to have been removed
         #     # is if we refined the instance, in which case we already have a new refined instance
         #     score = reduce_score(priority.score, num_visits)
         #     instantiator.push_instance(instance, score=score, num_visits=num_visits)
 
-        if should_plan(iteration, priority.score, instantiator.optimistic_results, instantiator):
-            print(f"Planning with {len(instantiator.optimistic_results)} results and {len(evaluations)} evaluations. Queue size: {len(instantiator.queue)}")
+        if should_plan(
+            iteration, priority.score, instantiator.optimistic_results, instantiator
+        ):
+            print(
+                f"Planning with {len(instantiator.optimistic_results)} results and {len(evaluations)} evaluations. Queue size: {len(instantiator.queue)}"
+            )
+            stream_plan, opt_plan, cost = optimistic_solve_fn(
+                evaluations, instantiator.ordered_results, None, store=store
+            )  # psi, pi*
             if visualize_atom_maps:
-                visualize_atom_map(instantiator.atom_map, os.path.join(logpath, f"atom_map_iter_{iteration}.html"))
-            stream_plan, opt_plan, cost = optimistic_solve_fn(evaluations, instantiator.ordered_results, None, store=store) # psi, pi*
+                visualize_atom_map(
+                    instantiator.atom_map,
+                    os.path.join(logpath, f"atom_map_iter_{iteration}.html"),
+                )
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found UNrefined plan!")
                 # refine stuff
-                new_results, bindings = optimistic_stream_evaluation(evaluations, stream_plan) # \bar{psi}, B
+                new_results, bindings = optimistic_stream_evaluation(
+                    evaluations, stream_plan
+                )  # \bar{psi}, B
                 bound_objects = set(bindings)
 
                 for result in stream_plan:
-                    if result.optimistic and set(result.output_objects) <= bound_objects:
+                    if (
+                        result.optimistic
+                        and set(result.output_objects) <= bound_objects
+                    ):
                         instantiator.remove_result(result)
-
 
                 for result in new_results:
                     if result.instance.external.is_negated:
                         continue
-                    complexity = instantiator.compute_complexity(result.instance) # TODO: is this right?
-                    instantiator.add_result(result, complexity, create_instances=True) # This is necessary to preserve the order of dependent results
+                    complexity = instantiator.compute_complexity(
+                        result.instance
+                    )  # TODO: is this right?
+                    instantiator.add_result(
+                        result, complexity, create_instances=True
+                    )  # This is necessary to preserve the order of dependent results
                     # TODO: maybe defer adding these results by adding to queue?
                 # TODO: check crappiness
                 continue
-            
+
             elif is_plan(opt_plan):
                 print("Found a refined plan!")
-                print('Length', len(opt_plan.action_plan))
+                print("Length", len(opt_plan.action_plan))
                 prev_name = ""
                 wrong = False
                 for action in opt_plan.action_plan:
                     if action.name == prev_name:
                         wrong = True
                         print("Someting is wrong")
-                    print('\t', action.name, [o.pddl for o in action.args])
+                    print("\t", action.name, [o.pddl for o in action.args])
                     prev_name = action.name
 
                 if wrong:
@@ -684,7 +1022,7 @@ def solve_informed(
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
-    
+
             for result in skeleton_queue.new_results:
                 if result.instance.external.is_negated or result.instance.fluent_facts:
                     continue
@@ -693,7 +1031,7 @@ def solve_informed(
                 instantiator.record_complexity(result, complexity)
                 ground_instance = GroundedInstance(instance, result, complexity)
                 instantiator.push_grounded_instance(grounded_instance=ground_instance)
-            
+
             # remove all old results that have been processed
             grounded_instances = {r.instance for r in skeleton_queue.new_results}
             enumerated, grounded = 0, 0
@@ -712,7 +1050,9 @@ def solve_informed(
                     # TODO: the line below seems to cause the same plan to be found repeatedly
                     instantiator.push_or_reduce_score(result.instance)
 
-            print(f'Removed {grounded} grounded and {enumerated} enumerated optimistic results')
+            print(
+                f"Removed {grounded} grounded and {enumerated} enumerated optimistic results"
+            )
 
     ################
 
@@ -739,18 +1079,21 @@ def solve_informed(
 
     return store.extract_solution()
 
+
 def should_sample(iteration, skeleton_queue):
     return False
-    #return bool(skeleton_queue.queue) and iteration % 100 == 0
+    # return bool(skeleton_queue.queue) and iteration % 100 == 0
 
 
 last_seen = -1
+
+
 def should_plan(iteration, score, results, instantiator):
-    #return True
-    #global last_seen
-    #if score > last_seen:
+    # return True
+    # global last_seen
+    # if score > last_seen:
     #    last_seen = score
     #    return True
-    #else:
+    # else:
     #    return not bool(len(instantiator.queue))
     return len(results) % 10 == 0 or not instantiator

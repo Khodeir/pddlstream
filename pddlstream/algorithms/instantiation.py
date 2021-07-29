@@ -5,10 +5,11 @@ from learning.gnn.data import fact_to_relevant_actions
 from learning.pddlstream_utils import fact_to_pddl, obj_to_pddl
 import random
 
-from pddlstream.algorithms.common import COMPLEXITY_OP
+from pddlstream.algorithms.common import COMPLEXITY_OP, EvaluationNode
 from pddlstream.algorithms.relation import compute_order, Relation, solve_satisfaction
 from pddlstream.language.constants import is_parameter
 from pddlstream.language.conversion import evaluation_from_fact, fact_from_evaluation, is_atom, head_from_fact
+from pddlstream.language.stream import StreamResult
 from pddlstream.utils import safe_zip, HeapElement, safe_apply_mapping
 
 USE_RELATION = True
@@ -144,6 +145,7 @@ class Instantiator(Sized): # Dynamic Instantiator
 
         
 ModelPriority = namedtuple('Priority', ['score']) # num ensures FIFO
+
 class InformedInstantiator(Instantiator):
     def __init__(self, streams, evaluations, model, verbose=False):
         self.streams = streams
@@ -181,6 +183,7 @@ class InformedInstantiator(Instantiator):
         for fact in result.get_certified():
             domain_facts = [f for f in result.domain] if (create_instances and result.is_refined()) else None
             self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances, domain_facts = domain_facts)
+
             if result in self.atom_map:
                 self.stream_map[fact_to_pddl(fact)] = result.external.name
                 for r in result.output_objects:
@@ -265,6 +268,13 @@ class InformedInstantiator(Instantiator):
         fact = fact_from_evaluation(atom)
         if fact in self.atom_map:
             del self.atom_map[fact]
+
+        dels = []
+        for f in self.atom_map:
+            if fact in self.atom_map[f]:
+                dels.append(f)
+        for d in dels:
+            del self.atom_map[d]
         for value_list in self.atoms_from_domain.values():
             if head in value_list:
                 value_list.remove(head)
@@ -382,10 +392,151 @@ class GroundedInstance:
         return isinstance(other, GroundedInstance) and other.instance is self.instance and other.result is self.result
 
 
-
 def should_sample(skeleton_queue):
     return bool(skeleton_queue.queue)
 
 def should_plan(score, results, instantiator):
     return True
     return len(results) % 10 == 0
+
+def make_hashable(result):
+    return HashableStreamResult(
+        result.instance,
+        result.output_objects,
+        result.opt_index,
+        result.call_index,
+        result.list_index,
+        result.optimistic
+    )
+
+class HashableStreamResult(StreamResult):
+
+    def __init__(
+        self,
+        instance,
+        output_objects,
+        opt_index = None,
+        call_index = None,
+        list_index = None,
+        optimistic = True,
+    ):
+        super().__init__(
+            instance,
+            output_objects,
+            opt_index,
+            call_index,
+            list_index,
+            optimistic
+        )
+
+    def __eq__(self, other):
+        return (self.external == other.external) and (self.mapping == other.mapping)
+
+    def __hash__(self):
+        return (hash(frozenset(self.mapping.items())) << 1) ^ hash(self.external)
+        
+class ResultInstantiator: 
+
+    def __init__(self, streams, verbose=False):
+        # TODO: lazily instantiate upon demand
+        self.streams = streams
+        self.verbose = verbose
+        #self.streams_from_atom = defaultdict(list)
+        # TODO: rename atom to head in most places
+        self.atoms_from_domain = defaultdict(list)
+
+        #self.I_ground = set()
+        #self.I_star = set()
+
+        self.node_from_atom = {}
+        #fact_to_stream_map = {}
+        #obj_to_stream_map = {}
+
+    def initialize_results(self, evaluations):
+        new_opt_results = []
+        self.node_from_atom = {fact_from_evaluation(e): r for e, r in evaluations.items()}
+        for atom, node in evaluations.items():
+            new_opt_results += self.add_atom(atom)
+        return new_opt_results
+
+    def remove_atom(self, atom):
+        head = atom.head
+        for value_list in self.atoms_from_domain.values():
+            if head in value_list:
+                value_list.remove(head)
+
+    def remove_certified_from_result(self, result):
+        for fact in result.get_certified():
+            self.remove_atom(evaluation_from_fact(fact))
+            if result.is_refined():
+                if fact in self.node_from_atom:
+                    del self.node_from_atom[fact]
+
+    def add_certified_from_result(self, result):
+        new_results = []
+        for fact in result.get_certified():
+            new_results += self.add_atom(evaluation_from_fact(fact))
+            if result.is_refined() and not any([d not in self.node_from_atom for d in result.domain]):
+                self.node_from_atom[fact] = EvaluationNode(complexity = 0, result = result)
+        return new_results
+
+    def add_atom(self, atom):
+        """
+        Takes in an atom (evaluation) and returns the new
+        results that can be created by adding that
+        evaluation
+        """
+        assert is_atom(atom), "You are trying to add something that is not an atom"
+        head = atom.head
+        return self.get_new_results(head)
+
+    def get_new_results(self, head):
+        res = []
+        for s_idx, stream in enumerate(self.streams):
+            for d_idx, domain_fact in enumerate(stream.domain):
+                domain_atom = head_from_fact(domain_fact)
+                if is_instance(head, domain_atom): # if the new atom is in the domain of this stream
+                    # TODO: handle domain constants more intelligently
+                    self.atoms_from_domain[s_idx, d_idx].append(head)
+                    atoms = [self.atoms_from_domain[s_idx, d2_idx] if d_idx != d2_idx else [head]
+                              for d2_idx in range(len(stream.domain))] # get all possible atoms that can take the other spots in the domain of the stream
+                    if USE_RELATION: #TODO: figure out what USE_RELATION is doing
+                        res += self.get_results_combinations_relation(stream, atoms)
+                    else:
+                        res += self.get_results_combinations(stream, atoms)
+        return res
+
+    def get_results_combinations(self, stream, atoms):
+        if not all(atoms):
+            return []
+        domain = list(map(head_from_fact, stream.domain))
+        # Most constrained variable/atom to least constrained
+        res = []
+        for combo in product(*atoms):
+            mapping = test_mapping(domain, combo)
+            if mapping is not None:
+                input_objects = safe_apply_mapping(stream.inputs, mapping)
+                opt = stream.get_instance(input_objects).next_optimistic()
+                assert len(opt) == 1, "Greater than one optimistic result?"
+                res.append(make_hashable(opt[0]))
+        return res
+
+    def get_results_combinations_relation(self, stream, atoms):
+        if not all(atoms):
+            return []
+        # TODO: might be a bug here?
+        domain = list(map(head_from_fact, stream.domain))
+        # TODO: compute this first?
+        relations = [Relation(filter(is_parameter, domain[index].args),
+                              [tuple(a for a, b in safe_zip(atom.args, domain[index].args)
+                                     if is_parameter(b)) for atom in atoms[index]])
+                     for index in compute_order(domain, atoms)]
+        solution = solve_satisfaction(relations)
+        res = []
+        for element in solution.body:
+            mapping = solution.get_mapping(element)
+            input_objects = safe_apply_mapping(stream.inputs, mapping)
+            opt = stream.get_instance(input_objects).next_optimistic()
+            assert len(opt) == 1, "Greater than one optimistic result?"
+            res.append(make_hashable(opt[0]))
+        return res

@@ -224,7 +224,6 @@ class StreamInfo(ExternalInfo):
 
 ##################################################
 
-
 class StreamResult(Result):
     def __init__(
         self,

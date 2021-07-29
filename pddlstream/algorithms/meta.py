@@ -18,7 +18,8 @@ from pddlstream.algorithms.focused import (
     solve_focused_original,
     solve_binding,
     solve_adaptive,
-    solve_informed
+    solve_informed,
+    solve_informedV2,
 )
 from pddlstream.algorithms.instantiate_task import (
     instantiate_task,
@@ -253,6 +254,19 @@ def solve(
         )
     if algorithm == "informed":
         return solve_informed(
+            problem, 
+            oracle,
+            max_time=max_time,
+            max_iterations=max_iterations,
+            max_memory=max_memory,
+            logpath=logpath,
+            verbose=verbose,
+            use_unique=use_unique,
+            search_sample_ratio=search_sample_ratio,
+            ** search_kwargs
+        )
+    if algorithm == "informedV2":
+        return solve_informedV2(
             problem, 
             oracle,
             max_time=max_time,
