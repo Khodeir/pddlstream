@@ -324,6 +324,7 @@ class SkeletonQueue(Sized):
             return STANDBY, is_new
         #if not is_instance_ready(self.evaluations, instance):
         #    raise RuntimeError(instance)
+        self.processed_results.append((binding.result, binding.mapping))
         if binding.up_to_date():
             new_results, _ = process_instance(self.store, self.domain, instance, disable=self.disable)
             is_new = bool(new_results)
@@ -434,6 +435,7 @@ class SkeletonQueue(Sized):
     def process(self, stream_plan, action_plan, cost, complexity_limit, max_time=0, accelerate=False):
         self.new_results = []
         self.all_results = []
+        self.processed_results = []
         start_time = time.time()
         if is_plan(stream_plan):
             self.new_skeleton(stream_plan, action_plan, cost)

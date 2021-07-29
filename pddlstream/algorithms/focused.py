@@ -639,6 +639,8 @@ class OptimisticResults:
             assert len(matched) == 1, "matched more than one result"
             result = matched[0]
         self.results.remove(result)
+
+    #def remove_result_by_mapping:
     
     def __len__(self):
         return len(self.results)
@@ -801,6 +803,14 @@ def solve_informedV2(
                 Q.push_result(result, score)
 
             enumerated, grounded = 0, 0
+
+            #for result,mapping in skeleton_queue.processed_results:
+                #pass
+            # for every processed result:
+                # if there is a matching result in I_star:
+                    # remove the matched optimistic result in I_star and the instantiator
+                    # repush the optimistic result on the queue with a reduced score
+                    # make sure to use a cached result score
             for result in list(I_star.results):
                 if result.instance.enumerated:
                     if result.optimistic:
