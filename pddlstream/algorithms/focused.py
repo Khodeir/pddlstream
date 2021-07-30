@@ -807,7 +807,7 @@ def solve_informedV2(
         else:
             stream_plan = None
 
-        if force_sample or iteration % 100 == 0:
+        if force_sample:# or iteration % 100 == 0:
             allocated_sample_time = (
                 (search_sample_ratio * store.search_time) - store.sample_time
                 if len(skeleton_queue.skeletons) <= max_skeletons
@@ -844,9 +844,9 @@ def solve_informedV2(
                     if not result.instance.enumerated:
                         Q.push_result(result, score)
 
-            for r in I_star.results: # is this a mega hack? What do do with disabled results?
+            for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
                 if r.instance.disabled:
-                    I_star.remove(r)
+                    I_star.remove_result(r)
             # add new grounded results, push them on the queue for later expansion
 
     ################
