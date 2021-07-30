@@ -181,16 +181,7 @@ class InformedInstantiator(Instantiator):
         if result.stream_fact in {r.stream_fact for r in self.optimistic_results}: # ensure we arn not adding this result twice
             return
         for fact in result.get_certified():
-            domain_facts = [f for f in result.domain] if (create_instances and result.is_refined()) else None
-            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances, domain_facts = domain_facts)
-
-            if result in self.atom_map:
-                self.stream_map[fact_to_pddl(fact)] = result.external.name
-                for r in result.output_objects:
-                    self.obj_to_stream_map[obj_to_pddl(r)] = {
-                        "name": result.name,
-                        "input_objects": [obj_to_pddl(f) for f in result.input_objects]
-                    }
+            self.add_atom(evaluation_from_fact(fact), complexity, create_instances=create_instances)
 
         self.optimistic_results.add(result)
         self.__list_results.append(result)
@@ -249,14 +240,7 @@ class InformedInstantiator(Instantiator):
         self.optimistic_results.remove(result)
 
         # TODO: remove corresponding atoms
-        for obj in result.output_objects:
-            pddl = obj_to_pddl(obj)
-            if pddl in self.obj_to_stream_map:
-                del self.obj_to_stream_map[pddl]
         for fact in result.get_certified():
-            pddl = fact_to_pddl(fact)
-            if pddl in self.stream_map:
-                del self.stream_map[pddl]
             self.remove_atom(evaluation_from_fact(fact))
 
     def remove_atom(self, atom):
@@ -266,15 +250,7 @@ class InformedInstantiator(Instantiator):
         # if head in self.complexity_from_atom:
         #     del self.complexity_from_atom[head]
         fact = fact_from_evaluation(atom)
-        if fact in self.atom_map:
-            del self.atom_map[fact]
 
-        dels = []
-        for f in self.atom_map:
-            if fact in self.atom_map[f]:
-                dels.append(f)
-        for d in dels:
-            del self.atom_map[d]
         for value_list in self.atoms_from_domain.values():
             if head in value_list:
                 value_list.remove(head)
@@ -344,7 +320,7 @@ class InformedInstantiator(Instantiator):
         if self.verbose:
             print(self.num_pushes, instance)
 
-    def add_atom(self, atom, complexity, create_instances=True, domain_facts = None):
+    def add_atom(self, atom, complexity, create_instances=True):
         """
         Add a fact to this instantiator.  
 
@@ -354,27 +330,18 @@ class InformedInstantiator(Instantiator):
             create_instances: if True, then the instantiator will add all new
                 stream instances that can be instantiated with the new
                 fact
-            domain_facts: Provide a list of the domain facts (as atoms)
-                if you want this atom to be added to the atom map
-                (iff create_instances)
         """
 
         # TODO: why is the atom map not modified here?
         if not is_atom(atom): 
-            return False
+            return False # what is this doing?
         head = atom.head
         # if head in self.complexity_from_atom:
         #     assert self.complexity_from_atom[head] <= complexity
         # else:
-        assert domain_facts is None or create_instances, "atom is only added to atom map if create_instances is True"
         self.complexity_from_atom[head] = complexity
 
         if create_instances:
-            if domain_facts is not None:
-                fact = fact_from_evaluation(atom)
-                assert fact not in self.atom_map, "This atom is already in the atom map"
-                if all([d in self.atom_map for d in domain_facts]):
-                    self.atom_map[fact] = domain_facts
             self._add_new_instances(head)
 
         
@@ -466,19 +433,24 @@ class ResultInstantiator:
                 value_list.remove(head)
 
     #TODO: make this faster
-    def get_child_certified_facts(self, result):
+    def get_child_certified_facts(self, result):#, cache = {}):
         res = set()
+        #if result in cache:
+            #return cache[result]
         for fact in result.get_certified():
             res.add(fact)
             for _, node in self.node_from_atom.items():
                 if (node.result is not None) and (fact in node.result.domain):
-                    res |= self.get_child_certified_facts(node.result)
+                    res |= self.get_child_certified_facts(node.result)#, cache= cache)
+        #cache[result] = res
         return res
 
     def remove_certified_from_result(self, result):
         # get all results that depend on the certified facts of this result
-        #TODO: make this faster
-        child_certified = self.get_child_certified_facts(result)
+        #TODO: make this faster and check if it is needed
+        #cache = {}
+        #print(f"Removing. Cache: {cache}")
+        child_certified = self.get_child_certified_facts(result)#, cache)
         for fact in child_certified:
             self.remove_atom(evaluation_from_fact(fact))
             if result.is_refined():
@@ -536,10 +508,10 @@ class ResultInstantiator:
         res = []
         for combo in product(*atoms):
             mapping = test_mapping(domain, combo)
-            if mapping is not None:
-                input_objects = safe_apply_mapping(stream.inputs, mapping)
-                opt = stream.get_instance(input_objects).next_optimistic()
-                assert len(opt) == 1, "Greater than one optimistic result?"
+            input_objects = safe_apply_mapping(stream.inputs, mapping)
+            opt = stream.get_instance(input_objects).next_optimistic()
+            if opt:
+                assert len(opt) == 1, str(opt)
                 res.append(make_hashable(opt[0]))
         return res
 
@@ -559,8 +531,8 @@ class ResultInstantiator:
             mapping = solution.get_mapping(element)
             input_objects = safe_apply_mapping(stream.inputs, mapping)
             instance = stream.get_instance(input_objects)
-            if not instance.disabled:
-                opt = instance.next_optimistic()
-                assert len(opt) == 1, "Greater than one optimistic result?"
+            opt = instance.next_optimistic()
+            if opt:
+                assert len(opt) == 1, str(opt)
                 res.append(make_hashable(opt[0]))
         return res

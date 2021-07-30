@@ -559,6 +559,7 @@ class ResultQueue:
         self.results = set()
 
     def push_result(self, new_result, score):
+        assert isinstance(new_result, HashableStreamResult)
         heappush(
             self.Q,
             HeapElement(
@@ -589,6 +590,7 @@ class OptimisticResults:
         self.list_results = []
 
     def add(self, result):
+        assert isinstance(result, HashableStreamResult)
         if result in self.results:
             return
         # remove this soon
@@ -723,7 +725,6 @@ def solve_informedV2(
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     model.set_infos(domain, externals, goal_exp, evaluations)
     iteration = 0
-
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
 
@@ -734,21 +735,21 @@ def solve_informedV2(
         instance_history[opt_result.instance] = (score, 1)
 
     I_star = OptimisticResults()
-
-
     while (
         (not store.is_terminated())
         and (iteration < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
         iteration += 1
-        print(f"Iteration: {iteration}")
-        print(f"Q length: {len(Q)}")
+        force_sample = False
+        #print(f"disabled in I_star 0: {[r for r in I_star.results if r.instance.disabled]}")
         if len(Q) > 0:
             score, result = Q.pop_result()
-            if result.optimistic:
+            new_results = []
+            if result not in I_star.results: # do we want this here?
+                new_results = instantiator.add_certified_from_result(result)
+            if result.optimistic:# and not result.instance.disabled: # is this disabled thing correct?
                 I_star.add(result)
-            new_results = instantiator.add_certified_from_result(result)
             for new_result in new_results:
                 if new_result in Q:
                     continue # do not re-add here
@@ -756,22 +757,23 @@ def solve_informedV2(
                 # TODO: should score be reduced here?
                 Q.push_result(new_result, score)
         else:
+            force_sample = True
             print("QUEUE EMPTY")
 
-        force_sample = False
         if should_planV2(iteration, Q):
             ordered_results = I_star.get_ordered_results(evaluations)
             print(
-                f"Planning with {len(I_star)} optimistic results and {len(evaluations)} grounded results"
+                f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
+            print(f"disabled in I_star 1: {[r for r in I_star.results if r.instance.disabled]}")
             if visualize_atom_maps:
                 visualize_atom_map(
                     make_atom_map(instantiator.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
                 )
-            print([r for r in I_star.results if r.instance.disabled])
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, ordered_results, None, store=store
             )  # psi, pi*
+            print(f"disabled in I_star 2: {[r for r in I_star.results if r.instance.disabled]}")
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
                 new_results, bindings = optimistic_stream_evaluation(
@@ -784,8 +786,10 @@ def solve_informedV2(
                         and set(result.output_objects) <= bound_objects
                     ):
                         # i know this design is slower, but I am making this explicit to start
-                        I_star.remove_result(result)
-                        instantiator.remove_certified_from_result(result)
+                        removed = I_star.remove_result(result)
+                        if removed is not None: #TODO: is this nessecary
+                            instantiator.remove_certified_from_result(result)
+
                 for result in new_results:
                     result = make_hashable(result)
                     if (result.instance.external.is_negated) or (result in Q):
@@ -800,26 +804,31 @@ def solve_informedV2(
             elif is_plan(opt_plan):
                 print_refined_plan(opt_plan)
                 force_sample = True
-
             else:
                 force_sample = False
 
-        if force_sample:
-            print("Sampling")
+        else:
+            stream_plan = None
 
+        if force_sample:
             allocated_sample_time = (
                 (search_sample_ratio * store.search_time) - store.sample_time
                 if len(skeleton_queue.skeletons) <= max_skeletons
                 else INF
             )
+            #allocated_sample_time = max(allocated_sample_time, 5)
+            print(f"disabled in I_star 3: {[r for r in I_star.results if r.instance.disabled]}")
+            print(len(I_star.results))
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
 
+            print(f"disabled in I_star 4: {[r for r in I_star.results if r.instance.disabled]}")
+            print(len(I_star.results))
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
-                if result.instance.external.is_negated or result.instance.fluent_facts:
+                if result.instance.external.is_negated or result.instance.fluent_facts: # what is this doing?
                     continue
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
@@ -828,6 +837,7 @@ def solve_informedV2(
                 score = reduce_score(score, num_visits) 
                 instantiator.add_certified_from_result(result, force_add = True, expand = False)
                 assert not result.optimistic
+                assert result not in Q
                 Q.push_result(result, score)
 
             for processed_result, mapping in skeleton_queue.processed_results:
@@ -839,8 +849,22 @@ def solve_informedV2(
                     )
                     score = reduce_score(score, num_visits) 
                     # TODO: check if this disabled thing is correct (what does it even mean?)
-                    if not (result.instance.disabled) and not (result.instance.enumerated):
+                    if not result.instance.enumerated:
                         Q.push_result(result, score)
+
+            dis = [r for r in I_star.results if r.instance.disabled]
+            if len(dis) > 0:
+                print(f"disabled in I_star 5: {dis}")
+                print("NEW")
+                for r in skeleton_queue.new_results:
+                    print(r)
+                print("PROCESSED")
+                for processed_result, _ in skeleton_queue.processed_results:
+                    print(processed_result)
+                print("FAILED")
+                for r in skeleton_queue.all_results:
+                    print(r)
+            # add new grounded results, push them on the queue for later expansion
 
     ################
 
@@ -975,11 +999,6 @@ def solve_informed(
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, instantiator.ordered_results, None, store=store
             )  # psi, pi*
-            if visualize_atom_maps:
-                visualize_atom_map(
-                    instantiator.atom_map,
-                    os.path.join(logpath, f"atom_map_iter_{iteration}.html"),
-                )
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found UNrefined plan!")
                 # refine stuff
@@ -1065,9 +1084,12 @@ def solve_informed(
                 # TODO: Do we want to remove all the optimistic results that share an instance with a newly grounded result?
                 elif result.instance in grounded_instances:
                     grounded += 1
+                    # I belive this line below will not remove the results it should:
                     instantiator.remove_result(result)
                     # TODO: the line below seems to cause the same plan to be found repeatedly
                     instantiator.push_or_reduce_score(result.instance)
+            
+            # we need to do something here to add all grounded results at once (so the atom map is correct)
 
             print(
                 f"Removed {grounded} grounded and {enumerated} enumerated optimistic results"
