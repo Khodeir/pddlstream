@@ -465,22 +465,38 @@ class ResultInstantiator:
             if head in value_list:
                 value_list.remove(head)
 
-    def remove_certified_from_result(self, result):
+    #TODO: make this faster
+    def get_child_certified_facts(self, result):
+        res = set()
         for fact in result.get_certified():
+            res.add(fact)
+            for _, node in self.node_from_atom.items():
+                if (node.result is not None) and (fact in node.result.domain):
+                    res |= self.get_child_certified_facts(node.result)
+        return res
+
+    def remove_certified_from_result(self, result):
+        # get all results that depend on the certified facts of this result
+        #TODO: make this faster
+        child_certified = self.get_child_certified_facts(result)
+        for fact in child_certified:
             self.remove_atom(evaluation_from_fact(fact))
             if result.is_refined():
                 if fact in self.node_from_atom:
                     del self.node_from_atom[fact]
 
-    def add_certified_from_result(self, result):
+    def add_certified_from_result(self, result, force_add = False, expand = True):
+        # force_add: force this result to be added to node from atom even if its parents do not exist yet
+        # expand: if True, new results are returned
         new_results = []
         for fact in result.get_certified():
-            new_results += self.add_atom(evaluation_from_fact(fact))
-            if result.is_refined() and not any([d not in self.node_from_atom for d in result.domain]):
+            if expand:
+                new_results += self.add_atom(evaluation_from_fact(fact), expand = expand)
+            if force_add or (result.is_refined() and not any([d not in self.node_from_atom for d in result.domain])):
                 self.node_from_atom[fact] = EvaluationNode(complexity = 0, result = result)
         return new_results
 
-    def add_atom(self, atom):
+    def add_atom(self, atom, expand = True):
         """
         Takes in an atom (evaluation) and returns the new
         results that can be created by adding that
@@ -488,22 +504,28 @@ class ResultInstantiator:
         """
         assert is_atom(atom), "You are trying to add something that is not an atom"
         head = atom.head
-        return self.get_new_results(head)
+        res = self.get_new_results(head, expand = expand)
+        if expand:
+            return res
+        return None
 
-    def get_new_results(self, head):
+    def get_new_results(self, head, expand = True):
         res = []
         for s_idx, stream in enumerate(self.streams):
             for d_idx, domain_fact in enumerate(stream.domain):
                 domain_atom = head_from_fact(domain_fact)
                 if is_instance(head, domain_atom): # if the new atom is in the domain of this stream
                     # TODO: handle domain constants more intelligently
-                    self.atoms_from_domain[s_idx, d_idx].append(head)
+                    #TODO: is this dupliacte checking correct?
+                    if head not in self.atoms_from_domain[s_idx, d_idx]:
+                        self.atoms_from_domain[s_idx, d_idx].append(head)
                     atoms = [self.atoms_from_domain[s_idx, d2_idx] if d_idx != d2_idx else [head]
                               for d2_idx in range(len(stream.domain))] # get all possible atoms that can take the other spots in the domain of the stream
-                    if USE_RELATION: #TODO: figure out what USE_RELATION is doing
-                        res += self.get_results_combinations_relation(stream, atoms)
-                    else:
-                        res += self.get_results_combinations(stream, atoms)
+                    if expand:
+                        if USE_RELATION: #TODO: figure out what USE_RELATION is doing
+                            res += self.get_results_combinations_relation(stream, atoms)
+                        else:
+                            res += self.get_results_combinations(stream, atoms)
         return res
 
     def get_results_combinations(self, stream, atoms):
@@ -536,7 +558,9 @@ class ResultInstantiator:
         for element in solution.body:
             mapping = solution.get_mapping(element)
             input_objects = safe_apply_mapping(stream.inputs, mapping)
-            opt = stream.get_instance(input_objects).next_optimistic()
-            assert len(opt) == 1, "Greater than one optimistic result?"
-            res.append(make_hashable(opt[0]))
+            instance = stream.get_instance(input_objects)
+            if not instance.disabled:
+                opt = instance.next_optimistic()
+                assert len(opt) == 1, "Greater than one optimistic result?"
+                res.append(make_hashable(opt[0]))
         return res

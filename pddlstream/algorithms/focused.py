@@ -1,5 +1,7 @@
 from __future__ import print_function
+from copy import copy, deepcopy
 from heapq import heappush, heappop, heapify
+from learning.pddlstream_utils import make_atom_map
 import os
 
 import time
@@ -578,28 +580,30 @@ class ResultQueue:
         return len(self.Q)
 
 def should_planV2(iteration, Q):
-    return True
-    return (iteration % 1 == 0) or (len(Q) == 0)
+    return (iteration % 10 == 0) or (len(Q) == 0)
 
 class OptimisticResults:
 
     def __init__(self):
         self.results = set()
-        self.__list_results = []
+        self.list_results = []
 
     def add(self, result):
-        if result.stream_fact in {r.stream_fact for r in self.results}:
+        if result in self.results:
             return
+        # remove this soon
+        assert not result.stream_fact in {r.stream_fact for r in self.results}
         self.results.add(result)
-        self.__list_results.append(result)
+        self.list_results.append(result)
 
     def get_ordered_results(self, evaluations):
-        queue = list(enumerate(self.__list_results))
+        queue = list(enumerate(self.list_results))
         evals = set(evaluations)
         ordered_inds = []
         ordered_results = []
         deferred = set()
-        orphaned = []
+        #TODO: is this correct?
+        orphaned = set() # this could have duplicates if a result appears twice in self.list_results
         while queue:
             (i, result) = queue.pop(0)
             if result not in self.results:
@@ -613,14 +617,14 @@ class OptimisticResults:
                 # assert result not in deferred, "Found an orphaned stream result"
                 if result in deferred:
                     # print("Removed orphaned result", result)
-                    orphaned.append(result)
+                    orphaned.add(result)
                 else:
                     queue.append((i, result))
                     deferred.add(result)
 
-        self.__list_results = [self.__list_results[i] for i in ordered_inds] # update order
         for result in orphaned:
             self.remove_result(result)
+        self.list_results = [self.list_results[i] for i in ordered_inds] # update order
         print(f'Removed {len(orphaned)} orphaned results')
         return ordered_results
 
@@ -639,8 +643,21 @@ class OptimisticResults:
             assert len(matched) == 1, "matched more than one result"
             result = matched[0]
         self.results.remove(result)
+        return result
 
     #def remove_result_by_mapping:
+    def remove_by_mapping(self, result, mapping):
+        # update mapping of `result`
+        result_c = make_hashable(result) #aka make a copy
+        mapping = list(mapping.items())
+        mapping_values = {v[1]:i for i, v in enumerate(mapping)}
+        mapping_keys = [v[0] for v in mapping]
+        for k,v in result_c.mapping.items():
+            if v in mapping_values:
+                result_c.mapping[k] = mapping_keys[mapping_values[v]]
+        if result_c in self.results:
+            return self.remove_result(result_c)
+        return None
     
     def __len__(self):
         return len(self.results)
@@ -718,16 +735,19 @@ def solve_informedV2(
 
     I_star = OptimisticResults()
 
+
     while (
         (not store.is_terminated())
         and (iteration < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
         iteration += 1
+        print(f"Iteration: {iteration}")
         print(f"Q length: {len(Q)}")
         if len(Q) > 0:
             score, result = Q.pop_result()
-            I_star.add(result)
+            if result.optimistic:
+                I_star.add(result)
             new_results = instantiator.add_certified_from_result(result)
             for new_result in new_results:
                 if new_result in Q:
@@ -738,11 +758,17 @@ def solve_informedV2(
         else:
             print("QUEUE EMPTY")
 
+        force_sample = False
         if should_planV2(iteration, Q):
+            ordered_results = I_star.get_ordered_results(evaluations)
             print(
                 f"Planning with {len(I_star)} optimistic results and {len(evaluations)} grounded results"
             )
-            ordered_results = I_star.get_ordered_results(evaluations)
+            if visualize_atom_maps:
+                visualize_atom_map(
+                    make_atom_map(instantiator.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
+                )
+            print([r for r in I_star.results if r.instance.disabled])
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, ordered_results, None, store=store
             )  # psi, pi*
@@ -789,10 +815,10 @@ def solve_informedV2(
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
-            grounded_instances = set()
+
+            # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
-                grounded_instances.add(result.instance)
                 if result.instance.external.is_negated or result.instance.fluent_facts:
                     continue
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
@@ -800,38 +826,21 @@ def solve_informedV2(
                     instance_history, result, model, instantiator.node_from_atom
                 )
                 score = reduce_score(score, num_visits) 
+                instantiator.add_certified_from_result(result, force_add = True, expand = False)
+                assert not result.optimistic
                 Q.push_result(result, score)
 
-            enumerated, grounded = 0, 0
-
-            #for result,mapping in skeleton_queue.processed_results:
-                #pass
-            # for every processed result:
-                # if there is a matching result in I_star:
-                    # remove the matched optimistic result in I_star and the instantiator
-                    # repush the optimistic result on the queue with a reduced score
-                    # make sure to use a cached result score
-            for result in list(I_star.results):
-                if result.instance.enumerated:
-                    if result.optimistic:
-                        enumerated += 1
-                        I_star.remove_result(result)
-                        instantiator.remove_certified_from_result(result)
-
-                elif result.instance in grounded_instances: # instance is not enumerated, add back an optimistic result
-                    # is the nessecary?
-                    grounded += 1
-                    I_star.remove_result(result)
+            for processed_result, mapping in skeleton_queue.processed_results:
+                result = I_star.remove_by_mapping(processed_result, mapping)
+                if result is not None:
                     instantiator.remove_certified_from_result(result)
                     score, num_visits = get_score_and_update_visits(
                         instance_history, result, model, instantiator.node_from_atom
                     )
                     score = reduce_score(score, num_visits) 
-                    Q.push_result(result, score)
-
-            print(
-                f"Removed {grounded} grounded and {enumerated} enumerated optimistic results"
-            )
+                    # TODO: check if this disabled thing is correct (what does it even mean?)
+                    if not (result.instance.disabled) and not (result.instance.enumerated):
+                        Q.push_result(result, score)
 
     ################
 

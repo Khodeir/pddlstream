@@ -324,13 +324,14 @@ class SkeletonQueue(Sized):
             return STANDBY, is_new
         #if not is_instance_ready(self.evaluations, instance):
         #    raise RuntimeError(instance)
-        self.processed_results.append((binding.result, binding.mapping))
         if binding.up_to_date():
             new_results, _ = process_instance(self.store, self.domain, instance, disable=self.disable)
             is_new = bool(new_results)
             self.new_results.extend(new_results)
             for result in new_results:
                 self.all_results.append((result, 'success'))
+            if is_new:
+                self.processed_results.append((binding.result, binding.mapping))
             if not is_new:
                 self.all_results.append((binding.result, 'fail'))
         for new_binding in binding.update_bindings():
