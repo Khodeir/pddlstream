@@ -742,13 +742,12 @@ def solve_informedV2(
     ):
         iteration += 1
         force_sample = False
-        #print(f"disabled in I_star 0: {[r for r in I_star.results if r.instance.disabled]}")
         if len(Q) > 0:
             score, result = Q.pop_result()
             new_results = []
             if result not in I_star.results: # do we want this here?
                 new_results = instantiator.add_certified_from_result(result)
-            if result.optimistic:# and not result.instance.disabled: # is this disabled thing correct?
+            if result.optimistic and not result.instance.disabled: # is this disabled thing correct?
                 I_star.add(result)
             for new_result in new_results:
                 if new_result in Q:
@@ -765,7 +764,6 @@ def solve_informedV2(
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
-            print(f"disabled in I_star 1: {[r for r in I_star.results if r.instance.disabled]}")
             if visualize_atom_maps:
                 visualize_atom_map(
                     make_atom_map(instantiator.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
@@ -773,7 +771,6 @@ def solve_informedV2(
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, ordered_results, None, store=store
             )  # psi, pi*
-            print(f"disabled in I_star 2: {[r for r in I_star.results if r.instance.disabled]}")
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
                 new_results, bindings = optimistic_stream_evaluation(
@@ -810,21 +807,16 @@ def solve_informedV2(
         else:
             stream_plan = None
 
-        if force_sample:
+        if force_sample or iteration % 100 == 0:
             allocated_sample_time = (
                 (search_sample_ratio * store.search_time) - store.sample_time
                 if len(skeleton_queue.skeletons) <= max_skeletons
                 else INF
             )
             #allocated_sample_time = max(allocated_sample_time, 5)
-            print(f"disabled in I_star 3: {[r for r in I_star.results if r.instance.disabled]}")
-            print(len(I_star.results))
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, allocated_sample_time
             )
-
-            print(f"disabled in I_star 4: {[r for r in I_star.results if r.instance.disabled]}")
-            print(len(I_star.results))
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
@@ -852,18 +844,9 @@ def solve_informedV2(
                     if not result.instance.enumerated:
                         Q.push_result(result, score)
 
-            dis = [r for r in I_star.results if r.instance.disabled]
-            if len(dis) > 0:
-                print(f"disabled in I_star 5: {dis}")
-                print("NEW")
-                for r in skeleton_queue.new_results:
-                    print(r)
-                print("PROCESSED")
-                for processed_result, _ in skeleton_queue.processed_results:
-                    print(processed_result)
-                print("FAILED")
-                for r in skeleton_queue.all_results:
-                    print(r)
+            for r in I_star.results: # is this a mega hack? What do do with disabled results?
+                if r.instance.disabled:
+                    I_star.remove(r)
             # add new grounded results, push them on the queue for later expansion
 
     ################

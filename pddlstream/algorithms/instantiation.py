@@ -416,6 +416,8 @@ class ResultInstantiator:
         #self.I_star = set()
 
         self.node_from_atom = {}
+        # remove this when it is not nessecary
+        self.complexity_from_atom = {}
         #fact_to_stream_map = {}
         #obj_to_stream_map = {}
 
