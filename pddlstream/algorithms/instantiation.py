@@ -456,7 +456,7 @@ class ResultInstantiator:
             # TODO: Remove things correctly - could rely on get_ordered_results
             # to get a set of all reachable facts and just filter these data
             # structures with that
-            pass 
+            return 
         child_certified = self.get_child_certified_facts(result)#, cache)
         for fact in child_certified:
             self.remove_atom(evaluation_from_fact(fact))
