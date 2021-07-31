@@ -1,6 +1,7 @@
 from __future__ import print_function
 from copy import copy, deepcopy
 from heapq import heappush, heappop, heapify
+from itertools import count
 from learning.pddlstream_utils import make_atom_map
 import os
 
@@ -558,20 +559,21 @@ class ResultQueue:
     def __init__(self):
         self.Q = []
         self.results = set()
+        self.count = count()
 
     def push_result(self, new_result, score):
         assert isinstance(new_result, HashableStreamResult)
         heappush(
             self.Q,
             HeapElement(
-                score,
+                (score, next(self.count)),
                 new_result
             ),
         )
         self.results.add(new_result)
 
     def pop_result(self):
-        score, result = heappop(self.Q)
+        (score, _), result = heappop(self.Q)
         self.results.remove(result)
         return score, result
 
