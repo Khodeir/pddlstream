@@ -48,6 +48,7 @@ from pddlstream.language.constants import is_plan, get_length, str_from_plan, IN
 from pddlstream.language.conversion import evaluation_from_fact
 from pddlstream.language.fluent import compile_fluent_streams
 from pddlstream.language.function import Function, Predicate
+from pddlstream.language.object import SharedOptValue
 from pddlstream.language.optimizer import ComponentStream
 from pddlstream.algorithms.recover_optimizers import combine_optimizers
 from pddlstream.language.statistics import (
@@ -599,13 +600,20 @@ class OptimisticResults:
         self.list_results.append(result)
 
     def get_ordered_results(self, evaluations):
-        queue = list(enumerate(self.list_results))
+        result_set = set()
+        # get a deduplicated version of self.list_results
+        queue = []
+        for i, result in list(enumerate(self.list_results))[::-1]: # reverse order to keep last added
+            if result not in result_set:
+                queue.insert(0, (i, result))
+                result_set.add(result)
+
         evals = set(evaluations)
         ordered_inds = []
         ordered_results = []
         deferred = set()
         #TODO: is this correct?
-        orphaned = set() # this could have duplicates if a result appears twice in self.list_results
+        orphaned = set()
         while queue:
             (i, result) = queue.pop(0)
             if result not in self.results:
@@ -616,19 +624,14 @@ class OptimisticResults:
                 ordered_inds.append(i)
                 evals.update(map(evaluation_from_fact, result.get_certified()))
             else:
-                # assert result not in deferred, "Found an orphaned stream result"
                 if result in deferred:
-                    # print("Removed orphaned result", result)
                     orphaned.add(result)
                 else:
                     queue.append((i, result))
                     deferred.add(result)
 
-        for result in orphaned:
-            self.remove_result(result)
         self.list_results = [self.list_results[i] for i in ordered_inds] # update order
-        print(f'Removed {len(orphaned)} orphaned results')
-        return ordered_results
+        return ordered_results, orphaned, evals
 
     def remove_result(self, result):
         if result.instance.external.is_negated:
@@ -678,6 +681,19 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom)
         num_visits = 0
         instance_history[instance] = (score, num_visits +1)
     return score, num_visits
+
+def remove_orphaned(I_star, evaluations, instantiator):
+    _, orphaned, evals = I_star.get_ordered_results(evaluations)
+    for result in orphaned:
+        removed = I_star.remove_result(result)
+        if removed is not None: #TODO: is this nessecary
+            instantiator.remove_certified_from_result(result)
+    return evals
+
+def assert_orphans(I_star, evaluations):
+    _, orphaned, evals = I_star.get_ordered_results(evaluations)
+    assert not orphaned
+    return evals
 
 def solve_informedV2(
     problem,
@@ -744,23 +760,31 @@ def solve_informedV2(
         force_sample = False
         if len(Q) > 0:
             score, result = Q.pop_result()
-            new_results = []
-            if result not in I_star.results: # do we want this here?
-                new_results = instantiator.add_certified_from_result(result)
-            if result.optimistic and not result.instance.disabled: # is this disabled thing correct?
-                I_star.add(result)
-            for new_result in new_results:
-                if new_result in Q:
-                    continue # do not re-add here
-                score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom)
-                # TODO: should score be reduced here?
-                Q.push_result(new_result, score)
+            # Need to check if this result has been orphaned since being placed on the queue
+            # TODO: is this cheaper than cleaning the queue every time we remove results?
+            opt_facts = assert_orphans(I_star, evaluations)
+            if {evaluation_from_fact(f) for f in result.domain} <= opt_facts: 
+ 
+                new_results = []
+                if result not in I_star.results: # do we want this here?
+                    new_results = instantiator.add_certified_from_result(result)
+                if result.optimistic and not result.instance.disabled: # is this disabled thing correct?
+                    I_star.add(result)
+                for new_result in new_results:
+                    if new_result in Q:
+                        continue # do not re-add here
+                    score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom)
+                    # TODO: should score be reduced here?
+                    Q.push_result(new_result, score)
+                assert_orphans(I_star, evaluations)
+            else:
+                print(f"{result} orphaned since being added to queue")
         else:
             force_sample = True
             print("QUEUE EMPTY")
 
         if should_planV2(iteration, Q):
-            ordered_results = I_star.get_ordered_results(evaluations)
+            ordered_results, _, _ = I_star.get_ordered_results(evaluations)
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
@@ -782,20 +806,54 @@ def solve_informedV2(
                         result.optimistic
                         and set(result.output_objects) <= bound_objects
                     ):
+                        # there is a reason not to do this.
+                        # an example would be: find-motion(#o3, #o4) -> #t1
+                        # where #o3 and #o4 are the unrefined outputs of all the IK's
+
+                        # but wouldn't #o3 and #o4 become refined in the process above?
+                        # no i think it would only get the one meaning of #o3 #o4 used in the eval
+
+                        # so how do we know when to remove and when to keep?
+                        # first guess: if there exists a result that is in I* but not stream_plan
+                        # which produces any of the input_objects of result
+                        opt_inputs = set(o for o in result.input_objects if isinstance(o.value, SharedOptValue))
+                        if opt_inputs:
+                            remove = True
+                            for other_result in ordered_results:
+                                if other_result not in stream_plan:
+                                    other_opt_outputs = set(o for o in other_result.output_objects if isinstance(o.value, SharedOptValue))
+                                    has_other_producers = (other_opt_outputs & opt_inputs)
+                                    if has_other_producers:
+                                        remove= False
+                                        break
+                            if not remove:
+                                continue
+
+
                         # i know this design is slower, but I am making this explicit to start
                         removed = I_star.remove_result(result)
                         if removed is not None: #TODO: is this nessecary
                             instantiator.remove_certified_from_result(result)
 
+                remove_orphaned(I_star, evaluations, instantiator)
+                assert_orphans(I_star, evaluations)
+
                 for result in new_results:
                     result = make_hashable(result)
-                    if (result.instance.external.is_negated) or (result in Q):
+                    if (result.instance.external.is_negated) or (result in I_star.results):
                         continue
-                    score, _ = get_score_and_update_visits(
-                        instance_history, result, model, instantiator.node_from_atom
-                    )
+
                     # TODO: add on queue or instantiate everything?
-                    Q.push_result(result, score)
+                    # These results MUST be popped off the queue in the order that they appear in new_results.
+                    # We need to first add the results to I_star, then put it on the queue for expansion
+                    I_star.add(result)
+                    if result  not in Q:
+                        score, _ = get_score_and_update_visits(
+                            instance_history, result, model, instantiator.node_from_atom
+                        )
+                        Q.push_result(result, score)
+                
+                assert_orphans(I_star, evaluations)
                 
                 continue
             elif is_plan(opt_plan):
@@ -827,7 +885,7 @@ def solve_informedV2(
                     instance_history, result, model, instantiator.node_from_atom
                 )
                 score = reduce_score(score, num_visits) 
-                instantiator.add_certified_from_result(result, force_add = True, expand = False)
+                instantiator.add_certified_from_result(result, force_add = False, expand = False)
                 assert not result.optimistic
                 assert result not in Q
                 Q.push_result(result, score)
@@ -836,17 +894,20 @@ def solve_informedV2(
                 result = I_star.remove_by_mapping(processed_result, mapping)
                 if result is not None:
                     instantiator.remove_certified_from_result(result)
-                    score, num_visits = get_score_and_update_visits(
-                        instance_history, result, model, instantiator.node_from_atom
-                    )
-                    score = reduce_score(score, num_visits) 
                     # TODO: check if this disabled thing is correct (what does it even mean?)
-                    if not result.instance.enumerated:
+                    if not (result.instance.enumerated or result.instance.disabled):
+                        score, num_visits = get_score_and_update_visits(
+                            instance_history, result, model, instantiator.node_from_atom
+                        )
+                        score = reduce_score(score, num_visits) 
                         Q.push_result(result, score)
+            
+            # for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
+            #     if r.instance.disabled:
+            #         I_star.remove_result(r)
+            remove_orphaned(I_star, evaluations, instantiator)
+            assert_orphans(I_star, evaluations)
 
-            for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
-                if r.instance.disabled:
-                    I_star.remove_result(r)
             # add new grounded results, push them on the queue for later expansion
 
     ################

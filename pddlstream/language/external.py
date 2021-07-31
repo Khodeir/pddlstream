@@ -84,7 +84,7 @@ class Result(object):
         return self.instance.domain
     def is_refined(self):
         # TODO: result.opt_index is None
-        return self.opt_index == 0 # TODO: base on output objects instead
+        return (not self.optimistic) or (self.opt_index == 0) # TODO: base on output objects instead
     def is_deferrable(self, *args, **kwargs):
         return self.info.defer_fn(self, *args, **kwargs)
     def get_domain(self):
