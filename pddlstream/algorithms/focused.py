@@ -688,12 +688,15 @@ def remove_orphaned(I_star, evaluations, instantiator):
         removed = I_star.remove_result(result)
         if removed is not None: #TODO: is this nessecary
             instantiator.remove_certified_from_result(result)
-    return evals
 
-def assert_orphans(I_star, evaluations):
+def assert_no_orphans(I_star, evaluations):
     _, orphaned, evals = I_star.get_ordered_results(evaluations)
     assert not orphaned
-    return evals
+
+def remove_disabled(I_star):
+    for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
+        if r.instance.disabled:
+            I_star.remove_result(r)
 
 def solve_informedV2(
     problem,
@@ -762,12 +765,13 @@ def solve_informedV2(
             score, result = Q.pop_result()
             # Need to check if this result has been orphaned since being placed on the queue
             # TODO: is this cheaper than cleaning the queue every time we remove results?
-            opt_facts = assert_orphans(I_star, evaluations)
-            if {evaluation_from_fact(f) for f in result.domain} <= opt_facts: 
- 
-                new_results = []
-                if result not in I_star.results: # do we want this here?
-                    new_results = instantiator.add_certified_from_result(result)
+            assert_no_orphans(I_star, evaluations)
+            _, _, all_facts = I_star.get_ordered_results(evaluations)
+            if {evaluation_from_fact(f) for f in result.domain} <= all_facts: 
+                # if result not in I_star.results: # do we want this here?
+                # I dont think we want to filter here. See comment 1 below.
+                # TODO: assert or check that result has not been expanded before
+                new_results = instantiator.add_certified_from_result(result)
                 if result.optimistic and not result.instance.disabled: # is this disabled thing correct?
                     I_star.add(result)
                 for new_result in new_results:
@@ -776,9 +780,10 @@ def solve_informedV2(
                     score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom)
                     # TODO: should score be reduced here?
                     Q.push_result(new_result, score)
-                assert_orphans(I_star, evaluations)
+                assert_no_orphans(I_star, evaluations)
             else:
-                print(f"{result} orphaned since being added to queue")
+                pass
+                # print(f"{result} orphaned since being added to queue")
         else:
             force_sample = True
             print("QUEUE EMPTY")
@@ -836,7 +841,7 @@ def solve_informedV2(
                             instantiator.remove_certified_from_result(result)
 
                 remove_orphaned(I_star, evaluations, instantiator)
-                assert_orphans(I_star, evaluations)
+                assert_no_orphans(I_star, evaluations)
 
                 for result in new_results:
                     result = make_hashable(result)
@@ -844,7 +849,7 @@ def solve_informedV2(
                         continue
 
                     # TODO: add on queue or instantiate everything?
-                    # These results MUST be popped off the queue in the order that they appear in new_results.
+                    # comment 1: These results MUST be popped off the queue in the order that they appear in new_results.
                     # We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
                     if result  not in Q:
@@ -853,7 +858,7 @@ def solve_informedV2(
                         )
                         Q.push_result(result, score)
                 
-                assert_orphans(I_star, evaluations)
+                assert_no_orphans(I_star, evaluations)
                 
                 continue
             elif is_plan(opt_plan):
@@ -902,11 +907,10 @@ def solve_informedV2(
                         score = reduce_score(score, num_visits) 
                         Q.push_result(result, score)
             
-            # for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
-            #     if r.instance.disabled:
-            #         I_star.remove_result(r)
+
+            remove_disabled(I_star)
             remove_orphaned(I_star, evaluations, instantiator)
-            assert_orphans(I_star, evaluations)
+            assert_no_orphans(I_star, evaluations)
 
             # add new grounded results, push them on the queue for later expansion
 
