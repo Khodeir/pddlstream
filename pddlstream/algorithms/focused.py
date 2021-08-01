@@ -685,11 +685,10 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom)
     return score, num_visits
 
 def remove_orphaned(I_star, evaluations, instantiator):
-    _, orphaned, evals = I_star.get_ordered_results(evaluations)
+    _, orphaned, reachable_evaluations = I_star.get_ordered_results(evaluations)
     for result in orphaned:
         removed = I_star.remove_result(result)
-        if removed is not None: #TODO: is this nessecary
-            instantiator.remove_certified_from_result(result)
+    instantiator.update_reachable_evaluations(reachable_evaluations)
 
 def assert_no_orphans(I_star, evaluations):
     _, orphaned, evals = I_star.get_ordered_results(evaluations)
@@ -832,16 +831,13 @@ def solve_informedV2(
                                     other_opt_outputs = set(o for o in other_result.output_objects if isinstance(o.value, SharedOptValue))
                                     has_other_producers = (other_opt_outputs & opt_inputs)
                                     if has_other_producers:
-                                        remove= False
+                                        remove = False
                                         break
                             if not remove:
                                 continue
 
 
-                        # i know this design is slower, but I am making this explicit to start
                         removed = I_star.remove_result(result)
-                        if removed is not None: #TODO: is this nessecary
-                            instantiator.remove_certified_from_result(result)
 
                 remove_orphaned(I_star, evaluations, instantiator)
                 assert_no_orphans(I_star, evaluations)
@@ -890,17 +886,21 @@ def solve_informedV2(
                 score, num_visits = get_score_and_update_visits(
                     instance_history, result, model, instantiator.node_from_atom
                 )
-                score = reduce_score(score, num_visits) 
-                instantiator.add_certified_from_result(result, force_add = False, expand = False)
+                score = reduce_score(score, num_visits)
+                # TODO: why do we need this add_certified here? 
+                instantiator.add_certified_from_result(result, force_add = True, expand = False)
                 assert not result.optimistic
                 assert result not in Q
                 Q.push_result(result, score)
 
             for processed_result, mapping in skeleton_queue.processed_results:
+                if processed_result.instance.external.is_negated or processed_result.instance.fluent_facts:
+                    continue
                 result = I_star.remove_by_mapping(processed_result, mapping)
+                assert processed_result.instance.disabled, processed_result
                 if result is not None:
-                    instantiator.remove_certified_from_result(result)
-                    # TODO: check if this disabled thing is correct (what does it even mean?)
+                    assert result.instance.disabled
+                    # TODO: If this assert never fires we can get rid of the things below
                     if not (result.instance.enumerated or result.instance.disabled):
                         score, num_visits = get_score_and_update_visits(
                             instance_history, result, model, instantiator.node_from_atom

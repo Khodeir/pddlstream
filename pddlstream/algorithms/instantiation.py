@@ -410,14 +410,12 @@ class ResultInstantiator:
         self.verbose = verbose
         #self.streams_from_atom = defaultdict(list)
         # TODO: rename atom to head in most places
-        self.atoms_from_domain = defaultdict(list)
+        self.atoms_from_domain = defaultdict(set)
 
         #self.I_ground = set()
         #self.I_star = set()
 
         self.node_from_atom = {}
-        # remove this when it is not nessecary
-        self.complexity_from_atom = {}
         #fact_to_stream_map = {}
         #obj_to_stream_map = {}
 
@@ -434,35 +432,14 @@ class ResultInstantiator:
             if head in value_list:
                 value_list.remove(head)
 
-    #TODO: make this faster
-    def get_child_certified_facts(self, result):#, cache = {}):
-        res = set()
-        #if result in cache:
-            #return cache[result]
-        for fact in result.get_certified():
-            res.add(fact)
-            for _, node in self.node_from_atom.items():
-                if (node.result is not None) and (fact in node.result.domain):
-                    res |= self.get_child_certified_facts(node.result)#, cache= cache)
-        #cache[result] = res
-        return res
-
-    def remove_certified_from_result(self, result):
-        # get all results that depend on the certified facts of this result
-        #TODO: make this faster and check if it is needed
-        #cache = {}
-        #print(f"Removing. Cache: {cache}")
-        if not result.is_refined():
-            # TODO: Remove things correctly - could rely on get_ordered_results
-            # to get a set of all reachable facts and just filter these data
-            # structures with that
-            return 
-        child_certified = self.get_child_certified_facts(result)#, cache)
-        for fact in child_certified:
-            self.remove_atom(evaluation_from_fact(fact))
-            if result.is_refined():
-                if fact in self.node_from_atom:
-                    del self.node_from_atom[fact]
+    def update_reachable_evaluations(self, reachable_evaluations):
+        reachable_heads = {e.head for e in reachable_evaluations}
+        reachable_facts = {fact_from_evaluation(e) for e in reachable_evaluations}
+        for key in self.atoms_from_domain:
+            self.atoms_from_domain[key] = reachable_heads & self.atoms_from_domain[key]
+        for fact in list(self.node_from_atom.keys()):
+            if fact not in reachable_facts:
+                del self.node_from_atom[fact]
 
     def add_certified_from_result(self, result, force_add = False, expand = True):
         # force_add: force this result to be added to node from atom even if its parents do not exist yet
@@ -471,7 +448,11 @@ class ResultInstantiator:
         for fact in result.get_certified():
             if expand:
                 new_results += self.add_atom(evaluation_from_fact(fact), expand = expand)
-            if force_add or (result.is_refined() and not any([d not in self.node_from_atom for d in result.domain])):
+            is_refined = (result.is_refined() and not any([d not in self.node_from_atom for d in result.domain]))
+            if force_add:
+                assert is_refined
+                # TODO: if this assert never fires, we can remove force_add
+            if force_add or is_refined:
                 self.node_from_atom[fact] = EvaluationNode(complexity = 0, result = result)
         return new_results
 
@@ -496,11 +477,10 @@ class ResultInstantiator:
                 if is_instance(head, domain_atom): # if the new atom is in the domain of this stream
                     # TODO: handle domain constants more intelligently
                     #TODO: is this dupliacte checking correct?
-                    if head not in self.atoms_from_domain[s_idx, d_idx]:
-                        self.atoms_from_domain[s_idx, d_idx].append(head)
-                    atoms = [self.atoms_from_domain[s_idx, d2_idx] if d_idx != d2_idx else [head]
-                              for d2_idx in range(len(stream.domain))] # get all possible atoms that can take the other spots in the domain of the stream
+                    self.atoms_from_domain[s_idx, d_idx].add(head)
                     if expand:
+                        atoms = [list(self.atoms_from_domain[s_idx, d2_idx]) if d_idx != d2_idx else [head]
+                              for d2_idx in range(len(stream.domain))] # get all possible atoms that can take the other spots in the domain of the stream
                         if USE_RELATION: #TODO: figure out what USE_RELATION is doing
                             res += self.get_results_combinations_relation(stream, atoms)
                         else:
