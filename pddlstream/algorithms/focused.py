@@ -746,6 +746,7 @@ def solve_informedV2(
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     model.set_infos(domain, externals, goal_exp, evaluations)
     iteration = 0
+    last_sample_time = time.time()
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
 
@@ -872,16 +873,14 @@ def solve_informedV2(
         else:
             stream_plan = None
 
-        if force_sample:# or iteration % 100 == 0:
-            allocated_sample_time = (
-                (search_sample_ratio * store.search_time) - store.sample_time
-                if len(skeleton_queue.skeletons) <= max_skeletons
-                else INF
-            )
-            #allocated_sample_time = max(allocated_sample_time, 5)
+        since_last_sample = (time.time() - last_sample_time)
+        if len(Q) == 0 and len(skeleton_queue.queue) == 0:
+            break
+        elif force_sample or len(skeleton_queue.skeletons) > max_skeletons or len(Q) == 0 or since_last_sample > 5:
             skeleton_queue.process(
-                stream_plan, opt_plan, cost, 0, allocated_sample_time
+                stream_plan, opt_plan, cost, 0, search_sample_ratio * since_last_sample
             )
+            last_sample_time = time.time()
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
