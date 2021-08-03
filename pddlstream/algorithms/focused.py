@@ -1,6 +1,6 @@
 from __future__ import print_function
 from copy import copy, deepcopy
-from heapq import heappush, heappop, heapify
+from heapq import heappush, heappop
 from itertools import count
 from learning.pddlstream_utils import make_atom_map
 import os
@@ -677,13 +677,19 @@ def reduce_score(score, num_visits, gamma = 0.8):
 def get_score_and_update_visits(instance_history, result, model, node_from_atom):
     # can't just use setdefault because it is not lazy
     instance = result.instance
+    is_refined = instance.is_refined()
     if instance in instance_history:
-        score, num_visits = instance_history[instance]
-        instance_history[instance] = (score, num_visits + 1)
-    else:
-        score = -model.predict(result, node_from_atom)
-        num_visits = 0
-        instance_history[instance] = (score, num_visits +1)
+        score, num_visits, was_refined = instance_history[instance]
+        if was_refined == is_refined:
+            instance_history[instance] = (score, num_visits + 1, was_refined)
+            return score, num_visits
+        else:
+            assert not was_refined and is_refined, "Somehow the instance got unrefined"
+            # TODO: going to reset visits to 0. Right?
+            # print("Instance has been refined since last time. Rescoring.", instance)
+    num_visits = 0
+    score = -model.predict(result, node_from_atom)
+    instance_history[instance] = (score, num_visits +1, is_refined)
     return score, num_visits
 
 def remove_orphaned(I_star, evaluations, instantiator):
@@ -758,7 +764,7 @@ def solve_informedV2(
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, instantiator.node_from_atom)
         Q.push_result(opt_result, score)
-        instance_history[opt_result.instance] = (score, 1)
+        instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
     I_star = OptimisticResults()
     while (
@@ -818,7 +824,10 @@ def solve_informedV2(
                     if (
                         result.optimistic
                         and set(result.output_objects) <= bound_objects
+                        and result in I_star.results # could be negative or fluent
+                        and result not in new_results # could be already refined
                     ):
+                        assert (not result.is_refined()) or any(isinstance(o.value, SharedOptValue) for o in result.input_objects), (result, bindings)
                         # there is a reason not to do this.
                         # an example would be: find-motion(#o3, #o4) -> #t1
                         # where #o3 and #o4 are the unrefined outputs of all the IK's
@@ -841,8 +850,6 @@ def solve_informedV2(
                                         break
                             if not remove:
                                 continue
-
-
                         removed = I_star.remove_result(result)
 
                 remove_orphaned(I_star, evaluations, instantiator)
@@ -850,12 +857,12 @@ def solve_informedV2(
 
                 for result in new_results:
                     result = make_hashable(result)
-                    if (result.instance.external.is_negated) or (result in I_star.results):
+                    if (result.instance.external.is_negated) or (result in I_star.results) or (not result.optimistic):
                         continue
 
                     # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
-                    if result  not in Q:
+                    if result not in Q:
                         score, _ = get_score_and_update_visits(
                             instance_history, result, model, instantiator.node_from_atom
                         )
@@ -915,7 +922,8 @@ def solve_informedV2(
                         score = reduce_score(score, num_visits) 
                         Q.push_result(result, score)
             
-
+            # print('Num irrelevant on queue', sum([1 for element in Q.Q if element.key[0] == 0]))
+            print('Num unrefined on queue', sum([1 for e in Q.Q if e.key[0] == -1]))
             remove_disabled(I_star)
             remove_orphaned(I_star, evaluations, instantiator)
             assert_no_orphans(I_star, evaluations)
