@@ -276,6 +276,7 @@ def solve(
             verbose=verbose,
             use_unique=use_unique,
             search_sample_ratio=search_sample_ratio,
+            stream_info=stream_info,
             ** search_kwargs
         )
     raise NotImplementedError(algorithm)

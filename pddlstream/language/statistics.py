@@ -7,8 +7,8 @@ from collections import Counter, namedtuple
 from pddlstream.language.constants import is_plan
 from pddlstream.utils import INF, read_pickle, ensure_dir, write_pickle, get_python_version
 
-LOAD_STATISTICS = True
-SAVE_STATISTICS = True
+LOAD_STATISTICS = False
+SAVE_STATISTICS = False
 
 DATA_DIR = 'statistics/py{:d}/'
 DEFAULT_SEARCH_OVERHEAD = 1e2 # TODO: update this over time

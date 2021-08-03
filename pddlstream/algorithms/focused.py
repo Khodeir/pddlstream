@@ -385,6 +385,8 @@ def solve_abstract(
                 reenable_disabled(evaluations, domain, disabled)
 
         # print(stream_plan_complexity(evaluations, stream_plan))
+        if is_plan(opt_plan) and is_plan(stream_plan):
+            print_pddl_plan(opt_plan)
         if not use_skeletons:
             process_stream_plan(
                 store,
@@ -688,6 +690,8 @@ def remove_orphaned(I_star, evaluations, instantiator):
     _, orphaned, reachable_evaluations = I_star.get_ordered_results(evaluations)
     for result in orphaned:
         removed = I_star.remove_result(result)
+        # print(result, 'removed')
+    print(f'Removed {len(orphaned)} orphaned results from I_star')
     instantiator.update_reachable_evaluations(reachable_evaluations)
 
 def assert_no_orphans(I_star, evaluations):
@@ -711,11 +715,12 @@ def solve_informedV2(
     search_sample_ratio=1,
     max_skeletons=INF,
     visualize_atom_maps=False,
+    stream_info={},
     **search_kwargs,
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
         problem,
-        stream_info={},
+        stream_info=stream_info,
         constraints=PlanConstraints(),
         unit_costs=False,
         unit_efforts=False,
@@ -804,6 +809,7 @@ def solve_informedV2(
             )  # psi, pi*
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
+                print_pddl_plan(opt_plan)
                 new_results, bindings = optimistic_stream_evaluation(
                     evaluations, stream_plan
                 )  # \bar{psi}, B
@@ -847,9 +853,7 @@ def solve_informedV2(
                     if (result.instance.external.is_negated) or (result in I_star.results):
                         continue
 
-                    # TODO: add on queue or instantiate everything?
-                    # comment 1: These results MUST be popped off the queue in the order that they appear in new_results.
-                    # We need to first add the results to I_star, then put it on the queue for expansion
+                    # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
                     if result  not in Q:
                         score, _ = get_score_and_update_visits(
@@ -861,7 +865,8 @@ def solve_informedV2(
                 
                 continue
             elif is_plan(opt_plan):
-                print_refined_plan(opt_plan)
+                print('Found refined plan')
+                print_pddl_plan(opt_plan)
                 force_sample = True
             else:
                 force_sample = False
@@ -882,13 +887,15 @@ def solve_informedV2(
                 result = make_hashable(result)
                 if result.instance.external.is_negated or result.instance.fluent_facts: # what is this doing?
                     continue
+                # Add certified so that the newly grounded facts are added to node from atom, and can be
+                # used to instantiate new results in subsequent iterations
+                instantiator.add_certified_from_result(result, force_add = True, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
                     instance_history, result, model, instantiator.node_from_atom
                 )
                 score = reduce_score(score, num_visits)
-                # TODO: why do we need this add_certified here? 
-                instantiator.add_certified_from_result(result, force_add = True, expand = False)
+
                 assert not result.optimistic
                 assert result not in Q
                 Q.push_result(result, score)
@@ -940,8 +947,7 @@ def solve_informedV2(
 
     return store.extract_solution()
 
-def print_refined_plan(opt_plan):   
-    print("Found a refined plan!")
+def print_pddl_plan(opt_plan):   
     print("Length", len(opt_plan.action_plan))
     prev_name = ""
     wrong = False
