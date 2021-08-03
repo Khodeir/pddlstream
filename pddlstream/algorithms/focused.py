@@ -884,7 +884,7 @@ def solve_informedV2(
         since_last_sample = (time.time() - last_sample_time)
         if (not force_sample) and (len(Q) == 0) and len(skeleton_queue.queue) == 0:
             break
-        elif force_sample or len(skeleton_queue.skeletons) > max_skeletons or len(Q) == 0 or since_last_sample > 5:
+        elif force_sample or len(skeleton_queue.skeletons) > max_skeletons or len(Q) == 0 or (skeleton_queue.skeletons and since_last_sample > 5):
             skeleton_queue.process(
                 stream_plan, opt_plan, cost, 0, search_sample_ratio * since_last_sample
             )
