@@ -49,7 +49,6 @@ from pddlstream.language.constants import is_plan, get_length, str_from_plan, IN
 from pddlstream.language.conversion import evaluation_from_fact
 from pddlstream.language.fluent import compile_fluent_streams
 from pddlstream.language.function import Function, Predicate
-from pddlstream.language.object import SharedOptValue
 from pddlstream.language.optimizer import ComponentStream
 from pddlstream.algorithms.recover_optimizers import combine_optimizers
 from pddlstream.language.statistics import (
@@ -709,6 +708,18 @@ def remove_disabled(I_star):
         if r.instance.disabled:
             I_star.remove_result(r)
 
+def get_instance_without_fluents(result):
+    assert result.external.is_fluent and result.instance.fluent_facts
+    return result.external.get_instance(result.input_objects)
+
+def get_opt_result_no_fluents(result):
+    instance = get_instance_without_fluents(result)
+    if instance.opt_results:
+        assert len(instance.opt_results) == 1
+        opt = instance.opt_results[0]
+        return make_hashable(opt)
+    return None
+
 def solve_informedV2(
     problem,
     model,
@@ -815,35 +826,37 @@ def solve_informedV2(
             )  # psi, pi*
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
-                print_pddl_plan(opt_plan)
+                # print_pddl_plan(opt_plan)
                 new_results, bindings = optimistic_stream_evaluation(
                     evaluations, stream_plan
                 )  # \bar{psi}, B
                 bound_objects = set(bindings)
+                stream_plan = [get_opt_result_no_fluents(r) if r.instance.fluent_facts else r for r in stream_plan]
                 for result in stream_plan:
                     if (
                         result.optimistic
-                        and set(result.output_objects) <= bound_objects
-                        and result in I_star.results # could be negative or fluent
+                        and result in I_star.results # if result is negative it wont appear in I_star
                         and result not in new_results # could be already refined
                     ):
-                        assert (not result.is_refined()) or any(isinstance(o.value, SharedOptValue) for o in result.input_objects), (result, bindings)
-                        # there is a reason not to do this.
+                        # the optimistic version of the fluent results have different output objects from
+                        # the one used in the stream_plan e.g. #t50 vs #t20 so the subset check doesnt work.
+                        if not (set(result.output_objects) <= bound_objects or result.external.is_fluent):
+                            continue
+                        assert (
+                            result.external.is_fluent # will be added in new_results
+                            or (not result.is_refined())
+                            or any(o.is_shared() for o in result.input_objects)
+                        ), (result, bindings)
+                        # We dont want to remove the result if its inputs
+                        # can be produced by other stream results not part of this plan
                         # an example would be: find-motion(#o3, #o4) -> #t1
                         # where #o3 and #o4 are the unrefined outputs of all the IK's
-
-                        # but wouldn't #o3 and #o4 become refined in the process above?
-                        # no i think it would only get the one meaning of #o3 #o4 used in the eval
-
-                        # so how do we know when to remove and when to keep?
-                        # first guess: if there exists a result that is in I* but not stream_plan
-                        # which produces any of the input_objects of result
-                        opt_inputs = set(o for o in result.input_objects if isinstance(o.value, SharedOptValue))
+                        opt_inputs = set(o for o in result.input_objects if o.is_shared())
                         if opt_inputs:
                             remove = True
                             for other_result in ordered_results:
                                 if other_result not in stream_plan:
-                                    other_opt_outputs = set(o for o in other_result.output_objects if isinstance(o.value, SharedOptValue))
+                                    other_opt_outputs = set(o for o in other_result.output_objects if o.is_shared())
                                     has_other_producers = (other_opt_outputs & opt_inputs)
                                     if has_other_producers:
                                         remove = False
@@ -858,6 +871,11 @@ def solve_informedV2(
                 for result in new_results:
                     result = make_hashable(result)
                     if (result.instance.external.is_negated) or (result in I_star.results) or (not result.optimistic):
+                        continue
+
+                    if result.instance.fluent_facts:
+                        # I'm curious about when this would ever happen
+                        assert False, f"Newly refined result {result} has fluent facts"
                         continue
 
                     # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
@@ -908,12 +926,17 @@ def solve_informedV2(
                 Q.push_result(result, score)
 
             for processed_result, mapping in skeleton_queue.processed_results:
-                if processed_result.instance.external.is_negated or processed_result.instance.fluent_facts:
+                if processed_result.instance.external.is_negated:
                     continue
-                result = I_star.remove_by_mapping(processed_result, mapping)
-                assert processed_result.instance.disabled, processed_result
+                if processed_result.instance.fluent_facts:
+                    processed_result = get_opt_result_no_fluents(processed_result)
+                    if processed_result is None:
+                        continue
+
+                assert processed_result.external.is_fluent or processed_result.instance.disabled, processed_result
+                result = I_star.remove_by_mapping(processed_result, mapping)                
                 if result is not None:
-                    assert result.instance.disabled
+                    assert result.external.is_fluent or result.instance.disabled
                     # TODO: If this assert never fires we can get rid of the things below
                     if not (result.instance.enumerated or result.instance.disabled):
                         score, num_visits = get_score_and_update_visits(
