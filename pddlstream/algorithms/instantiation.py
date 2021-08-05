@@ -441,18 +441,14 @@ class ResultInstantiator:
             if fact not in reachable_facts:
                 del self.node_from_atom[fact]
 
-    def add_certified_from_result(self, result, force_add = False, expand = True):
+    def add_certified_from_result(self, result, expand = False):
         # force_add: force this result to be added to node from atom even if its parents do not exist yet
         # expand: if True, new results are returned
         new_results = []
         for fact in result.get_certified():
-            if expand:
-                new_results += self.add_atom(evaluation_from_fact(fact), expand = expand)
+            new_results += self.add_atom(evaluation_from_fact(fact), expand = expand)
             is_refined = (result.is_refined() and not any([d not in self.node_from_atom for d in result.domain]))
-            if force_add:
-                assert is_refined
-                # TODO: if this assert never fires, we can remove force_add
-            if force_add or is_refined:
+            if is_refined:
                 self.node_from_atom[fact] = EvaluationNode(complexity = 0, result = result)
         return new_results
 
@@ -465,9 +461,7 @@ class ResultInstantiator:
         assert is_atom(atom), "You are trying to add something that is not an atom"
         head = atom.head
         res = self.get_new_results(head, expand = expand)
-        if expand:
-            return res
-        return None
+        return res
 
     def get_new_results(self, head, expand = True):
         res = []
