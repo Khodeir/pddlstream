@@ -594,11 +594,11 @@ class OptimisticResults:
         self.ordered_results = list()
         self.reachable_evals = set()
         self.level = dict()
-        self.last_orphaned = set()
 
     def add(self, result):
         assert isinstance(result, HashableStreamResult)
-        assert {evaluation_from_fact(f) for f in result.domain} <= self.reachable_evals
+        domain = {evaluation_from_fact(f) for f in result.domain}
+        assert domain <= self.reachable_evals, domain - self.reachable_evals
         if result in self.results:
             return
         self.results.add(result)
@@ -614,7 +614,7 @@ class OptimisticResults:
             self.level[cert] = l + 1
             self.reachable_evals.add(cert)
 
-    def update(self, evaluations):
+    def update(self, evaluations, assert_no_orphans=False):
         '''
         Orders the reuslts in order of precedence
         Computes the total set of reachable facts
@@ -656,10 +656,12 @@ class OptimisticResults:
         self.ordered_results = ordered_results
         self.reachable_evals = evals
         self.level = level
-        self.last_orphaned = orphaned
 
-        for result in self.last_orphaned:
-            removed = self.remove_result(result)
+        if assert_no_orphans:
+            assert not orphaned 
+        else:
+            for result in orphaned:
+                removed = self.remove_result(result)
 
         assert set(ordered_results) == self.results
 
@@ -717,8 +719,7 @@ def remove_orphaned(I_star, evaluations, instantiator):
     instantiator.update_reachable_evaluations(I_star.reachable_evals)
 
 def assert_no_orphans(I_star, evaluations):
-    I_star.update(evaluations)
-    assert not I_star.last_orphaned
+    I_star.update(evaluations, assert_no_orphans=True)
 
 def get_instance_without_fluents(result):
     assert result.external.is_fluent and result.instance.fluent_facts
@@ -783,21 +784,22 @@ def solve_informedV2(
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
     I_star = OptimisticResults()
-    I_star.update(evaluations)
+    I_star.update(evaluations, assert_no_orphans=True)
 
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
         I_star.add(opt_result)
+        instantiator.add_certified_from_result(opt_result, False, False)
         Q.push_result(opt_result, score)
         instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
-    I_star.update(evaluations)
     while (
         (not store.is_terminated())
         and (iteration < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
+        I_star.update(evaluations, assert_no_orphans=True)
         iteration += 1
         force_sample = False
         if len(Q) > 0:
@@ -810,14 +812,16 @@ def solve_informedV2(
                 continue
             elif result.optimistic:
                 assert result in I_star.results
+                assert {evaluation_from_fact(f) for f in result.domain} <= I_star.reachable_evals
             else:
                 assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
 
             # TODO: assert or check that result has not been expanded before
-            new_results = instantiator.add_certified_from_result(result)
+            new_results = instantiator.add_certified_from_result(result, expand=True)
 
             for new_result in new_results:
                 I_star.add(new_result)
+                instantiator.add_certified_from_result(new_result, False, False)
                 if new_result in Q:
                     continue # do not re-add here
                 score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
@@ -924,8 +928,7 @@ def solve_informedV2(
                 stream_plan, opt_plan, cost, 0, search_sample_ratio * since_last_sample
             )
             last_sample_time = time.time()
-            I_star.update(evaluations)
-            assert not I_star.last_orphaned
+            I_star.update(evaluations, assert_no_orphans=True)
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
