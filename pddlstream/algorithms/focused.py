@@ -943,19 +943,20 @@ def solve_informedV2(
                         continue
 
                 assert processed_result.external.is_fluent or processed_result.instance.disabled, processed_result
-                result = I_star.remove_by_mapping(processed_result, mapping)                
-                if result is not None:
-                    assert result.external.is_fluent or result.instance.disabled
-                    # TODO: If this assert never fires we can get rid of the things below
-                    if not (result.instance.enumerated or result.instance.disabled):
-                        score, num_visits = get_score_and_update_visits(
-                            instance_history, result, model, instantiator.node_from_atom
-                        )
-                        score = reduce_score(score, num_visits) 
-                        Q.push_result(result, score)
+                result = I_star.remove_by_mapping(processed_result, mapping)     
+                # TODO: I need to convince myself that grounded facts from fluent streams
+                # can be reused and "remapped" with new fluent facts. Otherwise, we might
+                # need to add them back
+                # if result is not None:
+                #     assert result.external.is_fluent or result.instance.disabled
+                #     # TODO: If this assert never fires we can get rid of the things below
+                #     if not (result.instance.enumerated or result.instance.disabled):
+                #         score, num_visits = get_score_and_update_visits(
+                #             instance_history, result, model, instantiator.node_from_atom
+                #         )
+                #         score = reduce_score(score, num_visits) 
+                #         Q.push_result(result, score)
             
-            # print('Num irrelevant on queue', sum([1 for element in Q.Q if element.key[0] == 0]))
-            print('Num unrefined on queue', sum([1 for e in Q.Q if e.key[0] == -1]))
             remove_disabled(I_star)
             remove_orphaned(I_star, evaluations, instantiator)
             assert_no_orphans(I_star, evaluations)
