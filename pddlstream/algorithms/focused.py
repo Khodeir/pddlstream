@@ -11,7 +11,7 @@ import signal
 from functools import partial, reduce
 from pddlstream.algorithms.algorithm import parse_problem
 from pddlstream.algorithms.advanced import enforce_simultaneous, identify_non_producers
-from pddlstream.algorithms.common import SolutionStore
+from pddlstream.algorithms.common import SolutionStore, add_certified
 from pddlstream.algorithms.constraints import PlanConstraints
 from pddlstream.algorithms.disabled import (
     push_disabled,
@@ -585,71 +585,87 @@ class ResultQueue:
         return len(self.Q)
 
 def should_planV2(iteration, Q):
-    return (iteration % 10 == 0) or (len(Q) == 0)
+    return (iteration % 100 == 0) or (len(Q) == 0)
 
 class OptimisticResults:
 
     def __init__(self):
         self.results = set()
-        self.list_results = []
+        self.ordered_results = list()
+        self.reachable_evals = set()
+        self.level = dict()
+        self.last_orphaned = set()
 
     def add(self, result):
         assert isinstance(result, HashableStreamResult)
+        assert {evaluation_from_fact(f) for f in result.domain} <= self.reachable_evals
         if result in self.results:
             return
-        # remove this soon
-        assert not result.stream_fact in {r.stream_fact for r in self.results}
         self.results.add(result)
-        self.list_results.append(result)
+        # TODO: revisit this. because why would there ever be duplicates?
+        assert result not in self.ordered_results
+        self.ordered_results.append(result)
+        self.add_facts(result)
+        
+    
+    def add_facts(self, result):
+        l = max(self.level[f] for f in {evaluation_from_fact(f) for f in result.domain})
+        for cert in map(evaluation_from_fact, result.get_certified()):
+            self.level[cert] = l + 1
+            self.reachable_evals.add(cert)
 
-    def get_ordered_results(self, evaluations):
+    def update(self, evaluations):
+        '''
+        Orders the reuslts in order of precedence
+        Computes the total set of reachable facts
+        Computes the "level" of all reachable facts
+        Removes unsupported (orphaned) results
+        '''
         result_set = set()
-        # get a deduplicated version of self.list_results
+        # get a deduplicated version of self.ordered_results
         queue = []
-        for i, result in list(enumerate(self.list_results))[::-1]: # reverse order to keep last added
+        for result in list(self.ordered_results)[::-1]: # reverse order to keep last added
             if result not in result_set:
-                queue.insert(0, (i, result))
+                queue.insert(0, result)
                 result_set.add(result)
 
         evals = set(evaluations)
-        ordered_inds = []
         ordered_results = []
         deferred = set()
         #TODO: is this correct?
         orphaned = set()
+        level = {e:node.complexity for e, node in evaluations.items()}
         while queue:
-            (i, result) = queue.pop(0)
+            result = queue.pop(0)
             if result not in self.results:
                 continue
             domain = set(map(evaluation_from_fact, result.instance.get_domain()))
             if domain <= evals:
                 ordered_results.append(result)
-                ordered_inds.append(i)
-                evals.update(map(evaluation_from_fact, result.get_certified()))
+                l = max(level[f] for f in domain)
+                for cert in map(evaluation_from_fact, result.get_certified()):
+                    level[cert] = min(l + 1, level.get(cert, l + 1))
+                    evals.add(cert)
             else:
                 if result in deferred:
                     orphaned.add(result)
                 else:
-                    queue.append((i, result))
+                    queue.append(result)
                     deferred.add(result)
 
-        self.list_results = [self.list_results[i] for i in ordered_inds] # update order
-        return ordered_results, orphaned, evals
+        self.ordered_results = ordered_results
+        self.reachable_evals = evals
+        self.level = level
+        self.last_orphaned = orphaned
+
+        for result in self.last_orphaned:
+            removed = self.remove_result(result)
+
+        assert set(ordered_results) == self.results
 
     def remove_result(self, result):
-        if result.instance.external.is_negated:
-            return
-        if result.instance.external.is_fluent and result.instance.fluent_facts:
-            matched = []
-            for existing_result in self.results:
-                if (result.instance.external is existing_result.instance.external and \
-                    result.input_objects == existing_result.input_objects):
-                    matched.append(existing_result)
-            if not matched:
-                print(result, 'not matched')
-                return
-            assert len(matched) == 1, "matched more than one result"
-            result = matched[0]
+        assert not result.instance.external.is_negated
+        assert not (result.external.is_fluent and result.instance.fluent_facts)
         self.results.remove(result)
         return result
 
@@ -666,6 +682,11 @@ class OptimisticResults:
         if result_c in self.results:
             return self.remove_result(result_c)
         return None
+
+    def remove_disabled(self):
+        for r in list(self.results):
+            if r.instance.disabled:
+                self.remove_result(r)
     
     def __len__(self):
         return len(self.results)
@@ -673,7 +694,7 @@ class OptimisticResults:
 def reduce_score(score, num_visits, gamma = 0.8):
     return (gamma**num_visits)*score
 
-def get_score_and_update_visits(instance_history, result, model, node_from_atom):
+def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels):
     # can't just use setdefault because it is not lazy
     instance = result.instance
     is_refined = instance.is_refined()
@@ -687,26 +708,17 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom)
             # TODO: going to reset visits to 0. Right?
             # print("Instance has been refined since last time. Rescoring.", instance)
     num_visits = 0
-    score = -model.predict(result, node_from_atom)
+    score = -model.predict(result, node_from_atom, levels)
     instance_history[instance] = (score, num_visits +1, is_refined)
     return score, num_visits
 
 def remove_orphaned(I_star, evaluations, instantiator):
-    _, orphaned, reachable_evaluations = I_star.get_ordered_results(evaluations)
-    for result in orphaned:
-        removed = I_star.remove_result(result)
-        # print(result, 'removed')
-    print(f'Removed {len(orphaned)} orphaned results from I_star')
-    instantiator.update_reachable_evaluations(reachable_evaluations)
+    I_star.update(evaluations)
+    instantiator.update_reachable_evaluations(I_star.reachable_evals)
 
 def assert_no_orphans(I_star, evaluations):
-    _, orphaned, evals = I_star.get_ordered_results(evaluations)
-    assert not orphaned
-
-def remove_disabled(I_star):
-    for r in list(I_star.results): # is this a mega hack? What do do with disabled results?
-        if r.instance.disabled:
-            I_star.remove_result(r)
+    I_star.update(evaluations)
+    assert not I_star.last_orphaned
 
 def get_instance_without_fluents(result):
     assert result.external.is_fluent and result.instance.fluent_facts
@@ -773,11 +785,12 @@ def solve_informedV2(
 
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
-        score = -model.predict(opt_result, instantiator.node_from_atom)
+        score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
         Q.push_result(opt_result, score)
         instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
     I_star = OptimisticResults()
+    I_star.update(evaluations)
     while (
         (not store.is_terminated())
         and (iteration < max_iterations)
@@ -790,24 +803,22 @@ def solve_informedV2(
             # Need to check if this result has been orphaned since being placed on the queue
             # TODO: is this cheaper than cleaning the queue every time we remove results?
             assert_no_orphans(I_star, evaluations)
-            _, _, all_facts = I_star.get_ordered_results(evaluations)
-            if {evaluation_from_fact(f) for f in result.domain} <= all_facts: 
-                # if result not in I_star.results: # do we want this here?
-                # I dont think we want to filter here. See comment 1 below.
-                # TODO: assert or check that result has not been expanded before
+            if {evaluation_from_fact(f) for f in result.domain} <= I_star.reachable_evals: 
                 if result.optimistic and result.instance.disabled:
                     # TODO: We get here because we removed disabled from I_star, but not queue
                     continue
                 elif result.optimistic: # is this disabled thing correct?
                     I_star.add(result)
                 else:
-                    # TODO: assert already in evaluations
-                    pass
+                    assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
+
+                # TODO: assert or check that result has not been expanded before
                 new_results = instantiator.add_certified_from_result(result)
+
                 for new_result in new_results:
                     if new_result in Q:
                         continue # do not re-add here
-                    score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom)
+                    score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
                     # TODO: should score be reduced here?
                     Q.push_result(new_result, score)
                 assert_no_orphans(I_star, evaluations)
@@ -820,7 +831,7 @@ def solve_informedV2(
             print("QUEUE EMPTY")
 
         if should_planV2(iteration, Q):
-            ordered_results, _, _ = I_star.get_ordered_results(evaluations)
+            I_star.update(evaluations)
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
@@ -829,7 +840,7 @@ def solve_informedV2(
                     make_atom_map(instantiator.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
                 )
             stream_plan, opt_plan, cost = optimistic_solve_fn(
-                evaluations, ordered_results, None, store=store
+                evaluations, I_star.ordered_results, None, store=store
             )  # psi, pi*
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
@@ -861,7 +872,7 @@ def solve_informedV2(
                         opt_inputs = set(o for o in result.input_objects if o.is_shared())
                         if opt_inputs:
                             remove = True
-                            for other_result in ordered_results:
+                            for other_result in I_star.ordered_results:
                                 if other_result not in stream_plan:
                                     other_opt_outputs = set(o for o in other_result.output_objects if o.is_shared())
                                     has_other_producers = (other_opt_outputs & opt_inputs)
@@ -888,9 +899,10 @@ def solve_informedV2(
                     # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
                     instantiator.add_certified_from_result(result, force_add=True, expand=False)
+
                     if result not in Q:
                         score, _ = get_score_and_update_visits(
-                            instance_history, result, model, instantiator.node_from_atom
+                            instance_history, result, model, instantiator.node_from_atom, I_star.level
                         )
                         Q.push_result(result, score)
                 
@@ -915,6 +927,8 @@ def solve_informedV2(
                 stream_plan, opt_plan, cost, 0, search_sample_ratio * since_last_sample
             )
             last_sample_time = time.time()
+            I_star.update(evaluations)
+            assert not I_star.last_orphaned
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)
@@ -926,7 +940,7 @@ def solve_informedV2(
                 instantiator.add_certified_from_result(result, force_add = True, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
-                    instance_history, result, model, instantiator.node_from_atom
+                    instance_history, result, model, instantiator.node_from_atom, I_star.level
                 )
                 score = reduce_score(score, num_visits)
 
@@ -957,7 +971,7 @@ def solve_informedV2(
                 #         score = reduce_score(score, num_visits) 
                 #         Q.push_result(result, score)
             
-            remove_disabled(I_star)
+            I_star.remove_disabled()
             remove_orphaned(I_star, evaluations, instantiator)
             assert_no_orphans(I_star, evaluations)
 
