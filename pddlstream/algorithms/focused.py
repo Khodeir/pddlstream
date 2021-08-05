@@ -782,14 +782,16 @@ def solve_informedV2(
     last_sample_time = time.time()
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
+    I_star = OptimisticResults()
+    I_star.update(evaluations)
 
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
+        I_star.add(opt_result)
         Q.push_result(opt_result, score)
         instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
-    I_star = OptimisticResults()
     I_star.update(evaluations)
     while (
         (not store.is_terminated())
@@ -800,38 +802,33 @@ def solve_informedV2(
         force_sample = False
         if len(Q) > 0:
             score, result = Q.pop_result()
-            # Need to check if this result has been orphaned since being placed on the queue
-            # TODO: is this cheaper than cleaning the queue every time we remove results?
-            assert_no_orphans(I_star, evaluations)
-            if {evaluation_from_fact(f) for f in result.domain} <= I_star.reachable_evals: 
-                if result.optimistic and result.instance.disabled:
-                    # TODO: We get here because we removed disabled from I_star, but not queue
-                    continue
-                elif result.optimistic: # is this disabled thing correct?
-                    I_star.add(result)
-                else:
-                    assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
-
-                # TODO: assert or check that result has not been expanded before
-                new_results = instantiator.add_certified_from_result(result)
-
-                for new_result in new_results:
-                    if new_result in Q:
-                        continue # do not re-add here
-                    score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
-                    # TODO: should score be reduced here?
-                    Q.push_result(new_result, score)
-                assert_no_orphans(I_star, evaluations)
+            if result.optimistic and result.instance.disabled:
+                # TODO: We get here because we removed disabled from I_star, but not queue
+                assert result not in I_star.results
+            elif result.optimistic and result not in I_star.results: # is this disabled thing correct?
+                iteration -= 1 # been removed
+                continue
+            elif result.optimistic:
+                assert result in I_star.results
             else:
-                # TODO: We removed orphaned results from I_star and instantiator but not queue
-                pass
-                # print(f"{result} orphaned since being added to queue")
+                assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
+
+            # TODO: assert or check that result has not been expanded before
+            new_results = instantiator.add_certified_from_result(result)
+
+            for new_result in new_results:
+                I_star.add(new_result)
+                if new_result in Q:
+                    continue # do not re-add here
+                score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
+                # TODO: should score be reduced here?
+                Q.push_result(new_result, score)
+            assert_no_orphans(I_star, evaluations)
         else:
             force_sample = True
             print("QUEUE EMPTY")
 
         if should_planV2(iteration, Q):
-            I_star.update(evaluations)
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
