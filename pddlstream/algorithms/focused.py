@@ -795,9 +795,15 @@ def solve_informedV2(
                 # if result not in I_star.results: # do we want this here?
                 # I dont think we want to filter here. See comment 1 below.
                 # TODO: assert or check that result has not been expanded before
-                new_results = instantiator.add_certified_from_result(result)
-                if result.optimistic and not result.instance.disabled: # is this disabled thing correct?
+                if result.optimistic and result.instance.disabled:
+                    # TODO: We get here because we removed disabled from I_star, but not queue
+                    continue
+                elif result.optimistic: # is this disabled thing correct?
                     I_star.add(result)
+                else:
+                    # TODO: assert already in evaluations
+                    pass
+                new_results = instantiator.add_certified_from_result(result)
                 for new_result in new_results:
                     if new_result in Q:
                         continue # do not re-add here
@@ -806,6 +812,7 @@ def solve_informedV2(
                     Q.push_result(new_result, score)
                 assert_no_orphans(I_star, evaluations)
             else:
+                # TODO: We removed orphaned results from I_star and instantiator but not queue
                 pass
                 # print(f"{result} orphaned since being added to queue")
         else:
@@ -880,6 +887,7 @@ def solve_informedV2(
 
                     # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
+                    instantiator.add_certified_from_result(result, force_add=True, expand=False)
                     if result not in Q:
                         score, _ = get_score_and_update_visits(
                             instance_history, result, model, instantiator.node_from_atom
@@ -914,6 +922,7 @@ def solve_informedV2(
                     continue
                 # Add certified so that the newly grounded facts are added to node from atom, and can be
                 # used to instantiate new results in subsequent iterations
+                assert not result.optimistic
                 instantiator.add_certified_from_result(result, force_add = True, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
