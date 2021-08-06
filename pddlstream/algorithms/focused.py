@@ -808,6 +808,7 @@ def solve_informedV2(
             if result.optimistic and result.instance.disabled:
                 # TODO: We get here because we removed disabled from I_star, but not queue
                 assert result not in I_star.results
+                continue
             elif result.optimistic and result not in I_star.results: # is this disabled thing correct?
                 iteration -= 1 # been removed
                 continue
