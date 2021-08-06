@@ -785,12 +785,13 @@ def solve_informedV2(
     Q = ResultQueue()
     I_star = OptimisticResults()
     I_star.update(evaluations, assert_no_orphans=True)
-
+    ALLOW_CHILDREN_BEFORE_EXPANSION = False
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
         I_star.add(opt_result)
-        instantiator.add_certified_from_result(opt_result, expand=False)
+        if ALLOW_CHILDREN_BEFORE_EXPANSION:
+            instantiator.add_certified_from_result(opt_result, expand=False)
         Q.push_result(opt_result, score)
         instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
@@ -824,7 +825,8 @@ def solve_informedV2(
             for new_result in new_results:
                 # assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
                 I_star.add(new_result)
-                instantiator.add_certified_from_result(new_result, expand=False)
+                if ALLOW_CHILDREN_BEFORE_EXPANSION:
+                    instantiator.add_certified_from_result(new_result, expand=False)
                 if new_result in Q:
                     continue # do not re-add here
                 score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
@@ -902,7 +904,8 @@ def solve_informedV2(
 
                     # comment 1: We need to first add the results to I_star, then put it on the queue for expansion
                     I_star.add(result)
-                    instantiator.add_certified_from_result(result, expand=False)
+                    if ALLOW_CHILDREN_BEFORE_EXPANSION:
+                        instantiator.add_certified_from_result(result, expand=False)
 
                     if result not in Q:
                         score, _ = get_score_and_update_visits(
@@ -937,10 +940,11 @@ def solve_informedV2(
                 result = make_hashable(result)
                 if result.instance.external.is_negated or result.instance.fluent_facts: # what is this doing?
                     continue
-                # Add certified so that the newly grounded facts are added to node from atom, and can be
-                # used to instantiate new results in subsequent iterations
                 assert not result.optimistic
-                instantiator.add_certified_from_result(result, expand = False)
+                if ALLOW_CHILDREN_BEFORE_EXPANSION:
+                    # Add certified so that the newly grounded facts are added to node from atom, and can be
+                    # used to instantiate new results in subsequent iterations
+                    instantiator.add_certified_from_result(result, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
                     instance_history, result, model, instantiator.node_from_atom, I_star.level
