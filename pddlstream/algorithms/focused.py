@@ -564,6 +564,7 @@ class ResultQueue:
 
     def push_result(self, new_result, score):
         assert isinstance(new_result, HashableStreamResult)
+        assert new_result not in self.results
         heappush(
             self.Q,
             HeapElement(
@@ -804,8 +805,9 @@ def solve_informedV2(
         I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
             instantiator.add_certified_from_result(opt_result, expand=False)
-        Q.push_result(opt_result, score)
-        instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
+        if opt_result not in Q:
+            Q.push_result(opt_result, score)
+            instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
 
     while (
         (not store.is_terminated())
