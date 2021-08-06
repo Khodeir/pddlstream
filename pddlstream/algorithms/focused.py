@@ -584,8 +584,19 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q):
-    return (iteration % 100 == 0) or (len(Q) == 0)
+def should_planV2(iteration, Q, reachable):
+    if not hasattr(should_planV2, 'last_reachable_count'):
+        should_planV2.last_reachable_count = 0
+    res = False
+    if len(Q) == 0:
+        res = True
+    elif (iteration % 20 == 0) and (len(reachable) >= should_planV2.last_reachable_count + 10):
+        res = True
+
+    if res:
+        should_planV2.last_reachable_count = len(reachable)
+    
+    return res
 
 class OptimisticResults:
 
@@ -812,8 +823,7 @@ def solve_informedV2(
                 assert result not in I_star.results
                 continue
             elif result.optimistic and result not in I_star.results: # is this disabled thing correct?
-                iteration -= 1 # been removed
-                continue
+                continue # been removed
             elif result.optimistic:
                 assert result in I_star.results
                 assert {evaluation_from_fact(f) for f in result.domain} <= I_star.reachable_evals
@@ -839,7 +849,7 @@ def solve_informedV2(
             force_sample = True
             print("QUEUE EMPTY")
 
-        if should_planV2(iteration, Q):
+        if should_planV2(iteration, Q, I_star.reachable_evals):
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
             )
@@ -932,8 +942,12 @@ def solve_informedV2(
         if (not force_sample) and (len(Q) == 0) and len(skeleton_queue.queue) == 0:
             break
         elif force_sample or len(skeleton_queue.skeletons) > max_skeletons or len(Q) == 0 or (skeleton_queue.skeletons and since_last_sample > 5):
+            if force_sample:
+                sample_time = max(search_sample_ratio * since_last_sample, 2)
+            else:
+                sample_time = search_sample_ratio * since_last_sample
             skeleton_queue.process(
-                stream_plan, opt_plan, cost, 0, search_sample_ratio * since_last_sample
+                stream_plan, opt_plan, cost, 0, sample_time
             )
             last_sample_time = time.time()
             I_star.update(evaluations, assert_no_orphans=True)
