@@ -5,7 +5,7 @@ from learning.gnn.data import fact_to_relevant_actions
 from learning.pddlstream_utils import fact_to_pddl, obj_to_pddl
 import random
 
-from pddlstream.algorithms.common import COMPLEXITY_OP, EvaluationNode
+from pddlstream.algorithms.common import COMPLEXITY_OP
 from pddlstream.algorithms.relation import compute_order, Relation, solve_satisfaction
 from pddlstream.language.constants import is_parameter
 from pddlstream.language.conversion import evaluation_from_fact, fact_from_evaluation, is_atom, head_from_fact
@@ -415,13 +415,11 @@ class ResultInstantiator:
         #self.I_ground = set()
         #self.I_star = set()
 
-        self.node_from_atom = {}
         #fact_to_stream_map = {}
         #obj_to_stream_map = {}
 
     def initialize_results(self, evaluations):
         new_opt_results = []
-        self.node_from_atom = {fact_from_evaluation(e): r for e, r in evaluations.items()}
         for atom, node in evaluations.items():
             new_opt_results += self.add_atom(atom)
         return new_opt_results
@@ -437,9 +435,7 @@ class ResultInstantiator:
         reachable_facts = {fact_from_evaluation(e) for e in reachable_evaluations}
         for key in self.atoms_from_domain:
             self.atoms_from_domain[key] = reachable_heads & self.atoms_from_domain[key]
-        for fact in list(self.node_from_atom.keys()):
-            if fact not in reachable_facts:
-                del self.node_from_atom[fact]
+
 
     def add_certified_from_result(self, result, expand = False):
         # force_add: force this result to be added to node from atom even if its parents do not exist yet
@@ -447,9 +443,6 @@ class ResultInstantiator:
         new_results = []
         for fact in result.get_certified():
             new_results += self.add_atom(evaluation_from_fact(fact), expand = expand)
-            is_refined = (result.is_refined() and not any([d not in self.node_from_atom for d in result.domain]))
-            if is_refined:
-                self.node_from_atom[fact] = EvaluationNode(complexity = 0, result = result)
         return new_results
 
     def add_atom(self, atom, expand = True):

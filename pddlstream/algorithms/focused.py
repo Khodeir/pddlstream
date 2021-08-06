@@ -38,6 +38,7 @@ from pddlstream.algorithms.refinement import (
 )
 from pddlstream.algorithms.scheduling.plan_streams import OptSolution
 from pddlstream.algorithms.reorder import reorder_stream_plan
+from pddlstream.algorithms.scheduling.recover_streams import Node
 from pddlstream.algorithms.skeleton import SkeletonQueue
 from pddlstream.algorithms.visualization import (
     reset_visualizations,
@@ -46,7 +47,7 @@ from pddlstream.algorithms.visualization import (
     log_plans,
 )
 from pddlstream.language.constants import is_plan, get_length, str_from_plan, INFEASIBLE
-from pddlstream.language.conversion import evaluation_from_fact
+from pddlstream.language.conversion import evaluation_from_fact, fact_from_evaluation
 from pddlstream.language.fluent import compile_fluent_streams
 from pddlstream.language.function import Function, Predicate
 from pddlstream.language.optimizer import ComponentStream
@@ -606,6 +607,8 @@ class OptimisticResults:
         self.ordered_results = list()
         self.reachable_evals = set()
         self.level = dict()
+        self.node_from_atom = dict()
+        self.unrefined_facts = set()
 
     def add(self, result):
         assert isinstance(result, HashableStreamResult)
@@ -621,10 +624,20 @@ class OptimisticResults:
         
     
     def add_facts(self, result):
-        l = max(self.level[f] for f in {evaluation_from_fact(f) for f in result.domain})
-        for cert in map(evaluation_from_fact, result.get_certified()):
-            self.level[cert] = l + 1
+        domain = {evaluation_from_fact(f) for f in result.domain}
+        l = max(self.level[f] for f in domain)
+        is_refined = result.is_refined() and all(f not in self.unrefined_facts for f in domain)
+        for atom in result.get_certified():
+            cert = evaluation_from_fact(atom)
+            self.level[cert] = min(l + 1, self.level.get(cert, l + 1))
             self.reachable_evals.add(cert)
+
+
+            if is_refined:
+                self.node_from_atom[atom] = self.node_from_atom.get(atom, Node(0, result))
+            else:
+                self.unrefined_facts.add(cert)
+                
 
     def update(self, evaluations, assert_no_orphans=False):
         '''
@@ -642,22 +655,32 @@ class OptimisticResults:
                 result_set.add(result)
 
         evals = set(evaluations)
+        node_from_atom = {}
+        for atom in evaluations:
+            node_from_atom[fact_from_evaluation(atom)] = Node(0, evaluations[atom].result)
         ordered_results = []
         deferred = set()
         #TODO: is this correct?
         orphaned = set()
         level = {e:node.complexity for e, node in evaluations.items()}
+        unrefined_facts = set()
         while queue:
             result = queue.pop(0)
             if result not in self.results:
                 continue
             domain = set(map(evaluation_from_fact, result.instance.get_domain()))
+            is_refined = result.is_refined() and all(f not in self.unrefined_facts for f in domain)
             if domain <= evals:
                 ordered_results.append(result)
                 l = max(level[f] for f in domain)
-                for cert in map(evaluation_from_fact, result.get_certified()):
+                for atom in result.get_certified():
+                    cert = evaluation_from_fact(atom)
                     level[cert] = min(l + 1, level.get(cert, l + 1))
                     evals.add(cert)
+                    if is_refined:
+                        node_from_atom[atom] = node_from_atom.get(atom, Node(0, result))
+                    else:
+                        unrefined_facts.add(cert)
             else:
                 if result in deferred:
                     orphaned.add(result)
@@ -668,6 +691,7 @@ class OptimisticResults:
         self.ordered_results = ordered_results
         self.reachable_evals = evals
         self.level = level
+        self.node_from_atom = node_from_atom
 
         if assert_no_orphans:
             assert not orphaned 
@@ -722,7 +746,7 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom,
             # TODO: going to reset visits to 0. Right?
             # print("Instance has been refined since last time. Rescoring.", instance)
     num_visits = 0
-    score = -model.predict(result, node_from_atom, levels)
+    score = -model.predict(result, node_from_atom, levels=levels)
     instance_history[instance] = (score, num_visits +1, is_refined)
     return score, num_visits
 
@@ -801,7 +825,7 @@ def solve_informedV2(
     expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
-        score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
+        score = -model.predict(opt_result, I_star.node_from_atom, levels=I_star.level)
         I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
             instantiator.add_certified_from_result(opt_result, expand=False)
@@ -832,7 +856,7 @@ def solve_informedV2(
             else:
                 assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
 
-            assert result not in expanded
+            assert result not in expanded, result
             new_results = instantiator.add_certified_from_result(result, expand=True)
             expanded.add(result)
 
@@ -841,9 +865,11 @@ def solve_informedV2(
                 I_star.add(new_result)
                 if ALLOW_CHILDREN_BEFORE_EXPANSION:
                     instantiator.add_certified_from_result(new_result, expand=False)
-                if new_result in Q:
+                if new_result in Q or new_result in expanded:
+                    # the only way this happens is if these results were added as part of
+                    # refinement or sampling 
                     continue # do not re-add here
-                score, _ = get_score_and_update_visits(instance_history, new_result, model, instantiator.node_from_atom, I_star.level)
+                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level)
                 # TODO: should score be reduced here?
                 Q.push_result(new_result, score)
             assert_no_orphans(I_star, evaluations)
@@ -857,7 +883,7 @@ def solve_informedV2(
             )
             if visualize_atom_maps:
                 visualize_atom_map(
-                    make_atom_map(instantiator.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
+                    make_atom_map(I_star.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
                 )
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, I_star.ordered_results, None, store=store
@@ -869,7 +895,10 @@ def solve_informedV2(
                     evaluations, stream_plan
                 )  # \bar{psi}, B
                 bound_objects = set(bindings)
-                stream_plan = [get_opt_result_no_fluents(r) if r.instance.fluent_facts else r for r in stream_plan]
+                stream_plan = [get_opt_result_no_fluents(r) if r.instance.fluent_facts else make_hashable(r) for r in stream_plan]
+                assert all(isinstance(r, HashableStreamResult) for r in stream_plan)
+                new_results = [get_opt_result_no_fluents(r) if r.instance.fluent_facts else make_hashable(r) for r in new_results]
+                assert all(isinstance(r, HashableStreamResult) for r in new_results)
                 for result in stream_plan:
                     if (
                         result.optimistic
@@ -907,8 +936,7 @@ def solve_informedV2(
                 assert_no_orphans(I_star, evaluations)
 
                 for result in new_results:
-                    result = make_hashable(result)
-                    if (result.instance.external.is_negated) or (result in I_star.results) or (not result.optimistic):
+                    if (result.instance.external.is_negated) or (not result.optimistic):
                         continue
 
                     if result.instance.fluent_facts:
@@ -921,9 +949,9 @@ def solve_informedV2(
                     if ALLOW_CHILDREN_BEFORE_EXPANSION:
                         instantiator.add_certified_from_result(result, expand=False)
 
-                    if result not in Q:
+                    if result not in Q and result not in expanded:
                         score, _ = get_score_and_update_visits(
-                            instance_history, result, model, instantiator.node_from_atom, I_star.level
+                            instance_history, result, model, I_star.node_from_atom, I_star.level
                         )
                         Q.push_result(result, score)
                 
@@ -965,12 +993,12 @@ def solve_informedV2(
                     instantiator.add_certified_from_result(result, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
-                    instance_history, result, model, instantiator.node_from_atom, I_star.level
+                    instance_history, result, model, I_star.node_from_atom, I_star.level
                 )
                 score = reduce_score(score, num_visits)
 
-                assert not result.optimistic
                 assert result not in Q
+                assert result not in expanded
                 Q.push_result(result, score)
 
             for processed_result, mapping in skeleton_queue.processed_results:
@@ -991,7 +1019,7 @@ def solve_informedV2(
                 #     # TODO: If this assert never fires we can get rid of the things below
                 #     if not (result.instance.enumerated or result.instance.disabled):
                 #         score, num_visits = get_score_and_update_visits(
-                #             instance_history, result, model, instantiator.node_from_atom
+                #             instance_history, result, model, I_star.node_from_atom
                 #         )
                 #         score = reduce_score(score, num_visits) 
                 #         Q.push_result(result, score)
