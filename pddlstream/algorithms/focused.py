@@ -786,6 +786,7 @@ def solve_informedV2(
     I_star = OptimisticResults()
     I_star.update(evaluations, assert_no_orphans=True)
     ALLOW_CHILDREN_BEFORE_EXPANSION = False
+    expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, instantiator.node_from_atom, {e:n.complexity for e,n in evaluations.items()})
@@ -819,8 +820,9 @@ def solve_informedV2(
             else:
                 assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
 
-            # TODO: assert or check that result has not been expanded before
+            assert result not in expanded
             new_results = instantiator.add_certified_from_result(result, expand=True)
+            expanded.add(result)
 
             for new_result in new_results:
                 # assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
