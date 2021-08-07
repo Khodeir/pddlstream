@@ -612,8 +612,7 @@ class OptimisticResults:
 
     def add(self, result):
         assert isinstance(result, HashableStreamResult)
-        domain = {evaluation_from_fact(f) for f in result.domain}
-        assert domain <= self.reachable_evals, domain - self.reachable_evals
+        assert self.supports(result)
         if result in self.results:
             return
         self.results.add(result)
@@ -622,6 +621,8 @@ class OptimisticResults:
         self.ordered_results.append(result)
         self.add_facts(result)
         
+    def supports(self, result):
+        return {evaluation_from_fact(f) for f in result.domain} <= self.reachable_evals
     
     def add_facts(self, result):
         domain = {evaluation_from_fact(f) for f in result.domain}
@@ -639,7 +640,7 @@ class OptimisticResults:
                 self.unrefined_facts.add(cert)
                 
 
-    def update(self, evaluations, assert_no_orphans=False):
+    def update_reachable(self, evaluations, assert_no_orphans=False):
         '''
         Orders the reuslts in order of precedence
         Computes the total set of reachable facts
@@ -751,11 +752,11 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom,
     return score, num_visits
 
 def remove_orphaned(I_star, evaluations, instantiator):
-    I_star.update(evaluations)
+    I_star.update_reachable(evaluations)
     instantiator.update_reachable_evaluations(I_star.reachable_evals)
 
 def assert_no_orphans(I_star, evaluations):
-    I_star.update(evaluations, assert_no_orphans=True)
+    assert I_star.update_reachable(evaluations, assert_no_orphans=True) is None
 
 def get_instance_without_fluents(result):
     assert result.external.is_fluent and result.instance.fluent_facts
@@ -820,13 +821,15 @@ def solve_informedV2(
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
     I_star = OptimisticResults()
-    I_star.update(evaluations, assert_no_orphans=True)
-    ALLOW_CHILDREN_BEFORE_EXPANSION = False
+    I_star.update_reachable(evaluations, assert_no_orphans=True)
+    ALLOW_CHILDREN_BEFORE_EXPANSION = False # whether to add results to instantiator prior to expansion
+    EAGER_MODE = True # whether to add all new results to I_star immediately
     expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
         score = -model.predict(opt_result, I_star.node_from_atom, levels=I_star.level)
-        I_star.add(opt_result)
+        if EAGER_MODE:
+            I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
             instantiator.add_certified_from_result(opt_result, expand=False)
         if opt_result not in Q:
@@ -838,7 +841,7 @@ def solve_informedV2(
         and (iteration < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
-        I_star.update(evaluations, assert_no_orphans=True)
+        I_star.update_reachable(evaluations, assert_no_orphans=True)
         iteration += 1
         force_sample = False
         if len(Q) > 0:
@@ -848,11 +851,16 @@ def solve_informedV2(
                 # TODO: We get here because we removed disabled from I_star, but not queue
                 assert result not in I_star.results
                 continue
-            elif result.optimistic and result not in I_star.results: # is this disabled thing correct?
-                continue # been removed
             elif result.optimistic:
-                assert result in I_star.results
-                assert {evaluation_from_fact(f) for f in result.domain} <= I_star.reachable_evals
+                if EAGER_MODE:
+                    if result not in I_star.results:
+                        continue # been removed
+                    assert result in I_star.results
+                    assert I_star.supports(result)
+                else:
+                    if not I_star.supports(result):
+                        continue # been orphaned
+                    I_star.add(result)
             else:
                 assert all(evaluation_from_fact(f) in evaluations for f in result.get_certified())
 
@@ -862,7 +870,8 @@ def solve_informedV2(
 
             for new_result in new_results:
                 # assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
-                I_star.add(new_result)
+                if EAGER_MODE:
+                    I_star.add(new_result)
                 if ALLOW_CHILDREN_BEFORE_EXPANSION:
                     instantiator.add_certified_from_result(new_result, expand=False)
                 if new_result in Q or new_result in expanded:
@@ -980,7 +989,7 @@ def solve_informedV2(
                 stream_plan, opt_plan, cost, 0, sample_time
             )
             last_sample_time = time.time()
-            I_star.update(evaluations, assert_no_orphans=True)
+            I_star.update_reachable(evaluations, assert_no_orphans=True)
             # add new grounded results, push them on the queue for later expansion
             for result in skeleton_queue.new_results:
                 result = make_hashable(result)

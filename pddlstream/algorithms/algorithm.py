@@ -165,7 +165,8 @@ def parse_streams(
     use_unique=False,
 ):
     stream_iter = iter(parse_lisp(stream_pddl))
-    assert "define" == next(stream_iter)
+    define = next(stream_iter)
+    assert "define" == define
     pddl_type, pddl_name = next(stream_iter)
     assert "stream" == pddl_type
     for lisp_list in stream_iter:
