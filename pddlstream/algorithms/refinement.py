@@ -9,6 +9,7 @@ from copy import deepcopy, copy
 from pddlstream.algorithms.instantiation import Instantiator
 from pddlstream.algorithms.scheduling.plan_streams import plan_streams, OptSolution
 from pddlstream.algorithms.scheduling.recover_streams import (
+    Node,
     evaluations_from_stream_plan,
     get_achieving_streams,
 )
@@ -78,8 +79,7 @@ def prune_high_effort_streams(streams, max_effort=INF, **effort_args):
 
 
 def optimistic_process_streams(
-    evaluations, streams, complexity_limit=INF, store=None, 
-    oracle = None, **effort_args
+    evaluations, streams, complexity_limit=INF, store=None, oracle=None, **effort_args
 ):
     optimistic_streams = prune_high_effort_streams(streams, **effort_args)
     instantiator = Instantiator(optimistic_streams)
@@ -91,25 +91,35 @@ def optimistic_process_streams(
         if node.complexity <= complexity_limit:
             instantiator.add_atom(evaluation, node.complexity)
     results = []
+
+    node_from_atom = get_achieving_streams(evaluations, results)
+    evals = {fact_from_evaluation(e):r for e, r in evaluations.items()}
+    node_from_atom.update(evals)
     while instantiator and (instantiator.min_complexity() <= complexity_limit):
-        # TODO: incrementally update this instead of recomputing from scratch each time.
         if oracle:
-            node_from_atom = get_achieving_streams(evaluations, results)
-            node_from_atom.update(
-                {fact_from_evaluation(e): r for e, r in evaluations.items()}
-            )
+            #node_from_atom = get_achieving_streams(evaluations, results)
+            #node_from_atom.update(evals)
             current_oracle_checker = partial(
                 oracle_checker, node_from_atom=node_from_atom
             )
         else:
             current_oracle_checker = None
-        results.extend(
+
+        new_results = list(
             optimistic_process_instance(
                 instantiator,
                 instantiator.pop_stream(),
                 oracle_checker=current_oracle_checker,
             )
         )
+        node_from_atom.update(
+            {
+                f: Node(0, result)
+                for result in new_results
+                for f in result.get_certified()
+            }
+        )
+        results.extend(new_results)
         # TODO: instantiate and solve to avoid repeated work
     exhausted = not instantiator
     if store is not None:
@@ -322,7 +332,7 @@ def iterative_plan_streams(
     optimistic_solve_fn,
     complexity_limit,
     store=None,
-    oracle = None,
+    oracle=None,
     **effort_args,
 ):
     # Previously didn't have unique optimistic objects that could be constructed at arbitrary depths
@@ -335,7 +345,12 @@ def iterative_plan_streams(
     while True:
         num_iterations += 1
         results, exhausted = optimistic_process_streams(
-            complexity_evals, externals, complexity_limit, store=store, oracle = oracle, **effort_args
+            complexity_evals,
+            externals,
+            complexity_limit,
+            store=store,
+            oracle=oracle,
+            **effort_args,
         )
         opt_solution, final_depth = hierarchical_plan_streams(
             complexity_evals,
