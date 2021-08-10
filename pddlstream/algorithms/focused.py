@@ -785,6 +785,7 @@ def solve_informedV2(
     max_skeletons=INF,
     visualize_atom_maps=False,
     stream_info={},
+    eager_mode=False,
     **search_kwargs,
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
@@ -825,7 +826,7 @@ def solve_informedV2(
     I_star = OptimisticResults()
     I_star.update_reachable(evaluations, assert_no_orphans=True)
     ALLOW_CHILDREN_BEFORE_EXPANSION = False # whether to add results to instantiator prior to expansion
-    EAGER_MODE = True # whether to add all new results to I_star immediately
+    EAGER_MODE = eager_mode # whether to add all new results to I_star immediately
     expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):

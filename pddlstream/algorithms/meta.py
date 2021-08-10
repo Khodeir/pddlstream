@@ -103,6 +103,7 @@ def solve(
     logpath=None,
     oracle=None,
     use_unique=False,
+    eager_mode=True, # only for informed
     **search_kwargs,
 ):
     """
@@ -263,6 +264,7 @@ def solve(
             verbose=verbose,
             use_unique=use_unique,
             search_sample_ratio=search_sample_ratio,
+            eager_mode=eager_mode,
             ** search_kwargs
         )
     if algorithm == "informedV2":
