@@ -295,6 +295,16 @@ class StreamResult(Result):
     def is_successful(self):
         return True
 
+    def is_input_refined_recursive(self):
+        """Returns False if any of the ancestors of this result is unrefined and True otherwise"""
+        if not any(isinstance(o, OptimisticObject) for o in self.input_objects):
+            return True
+        return all(not isinstance(o, OptimisticObject) or not o.is_shared()
+                    for o in self.input_objects) \
+            and all(o.param.instance.opt_results[0].is_input_refined_recursive()
+                    for o in self.input_objects if isinstance(o, OptimisticObject))
+
+
     def __repr__(self):
         return "{}:{}->{}".format(
             self.external.name,

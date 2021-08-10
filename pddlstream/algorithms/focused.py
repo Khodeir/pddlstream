@@ -586,13 +586,13 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable):
+def should_planV2(iteration, Q, reachable, N=10):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
     res = False
     if len(Q) == 0:
         res = True
-    elif (iteration % 20 == 0) and (len(reachable) >= should_planV2.last_reachable_count + 10):
+    elif (iteration % 20 == 0) and (len(reachable) >= should_planV2.last_reachable_count + N):
         res = True
 
     if res:
@@ -633,10 +633,11 @@ class OptimisticResults:
             self.level[cert] = min(l + 1, self.level.get(cert, l + 1))
             self.reachable_evals.add(cert)
 
-
             if is_refined:
+                assert result.is_refined() and result.is_input_refined_recursive()
                 self.node_from_atom[atom] = self.node_from_atom.get(atom, Node(0, result))
             else:
+                assert not (result.is_refined() and result.is_input_refined_recursive())
                 self.unrefined_facts.add(cert)
                 
 
@@ -661,7 +662,6 @@ class OptimisticResults:
             node_from_atom[fact_from_evaluation(atom)] = Node(0, evaluations[atom].result)
         ordered_results = []
         deferred = set()
-        #TODO: is this correct?
         orphaned = set()
         level = {e:node.complexity for e, node in evaluations.items()}
         unrefined_facts = set()
@@ -679,8 +679,10 @@ class OptimisticResults:
                     level[cert] = min(l + 1, level.get(cert, l + 1))
                     evals.add(cert)
                     if is_refined:
+                        assert result.is_refined() and result.is_input_refined_recursive()
                         node_from_atom[atom] = node_from_atom.get(atom, Node(0, result))
                     else:
+                        assert not (result.is_refined() and result.is_input_refined_recursive())
                         unrefined_facts.add(cert)
             else:
                 if result in deferred:
@@ -846,7 +848,7 @@ def solve_informedV2(
         force_sample = False
         if len(Q) > 0:
             score, result = Q.pop_result()
-            # assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
+            assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
             if result.optimistic and result.instance.disabled:
                 # TODO: We get here because we removed disabled from I_star, but not queue
                 assert result not in I_star.results
@@ -869,7 +871,7 @@ def solve_informedV2(
             expanded.add(result)
 
             for new_result in new_results:
-                # assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
+                assert all(head_set <= {e.head for e in I_star.reachable_evals} for head_set in instantiator.atoms_from_domain.values())
                 if EAGER_MODE:
                     I_star.add(new_result)
                 if ALLOW_CHILDREN_BEFORE_EXPANSION:
@@ -888,15 +890,17 @@ def solve_informedV2(
 
         if should_planV2(iteration, Q, I_star.reachable_evals):
             print(
-                f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}"
+                f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}. Expanded: {len(expanded)}.", end=" "
             )
             if visualize_atom_maps:
                 visualize_atom_map(
                     make_atom_map(I_star.node_from_atom), os.path.join(logpath, f"atom_map_{iteration}.html")
                 )
+            start_plan = time.time()
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, I_star.ordered_results, None, store=store
             )  # psi, pi*
+            print(f'duration: {time.time() - start_plan}')
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
                 # print_pddl_plan(opt_plan)
