@@ -837,13 +837,13 @@ def solve_informedV2(
         if opt_result not in Q:
             Q.push_result(opt_result, score)
             instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
+    I_star.update_reachable(evaluations, assert_no_orphans=True)
 
     while (
         (not store.is_terminated())
         and (iteration < max_iterations)
         and (instantiator or skeleton_queue.queue)
     ):
-        I_star.update_reachable(evaluations, assert_no_orphans=True)
         iteration += 1
         force_sample = False
         if len(Q) > 0:
@@ -945,9 +945,6 @@ def solve_informedV2(
                                 continue
                         removed = I_star.remove_result(result)
 
-                remove_orphaned(I_star, evaluations, instantiator)
-                assert_no_orphans(I_star, evaluations)
-
                 for result in new_results:
                     if (result.instance.external.is_negated) or (not result.optimistic):
                         continue
@@ -967,7 +964,8 @@ def solve_informedV2(
                             instance_history, result, model, I_star.node_from_atom, I_star.level
                         )
                         Q.push_result(result, score)
-                
+
+                remove_orphaned(I_star, evaluations, instantiator)         
                 assert_no_orphans(I_star, evaluations)
                 
                 continue
