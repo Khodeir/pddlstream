@@ -1039,8 +1039,6 @@ def solve_informedV2(
             remove_orphaned(I_star, evaluations, instantiator)
             assert_no_orphans(I_star, evaluations)
 
-            # add new grounded results, push them on the queue for later expansion
-
     ################
 
     summary = store.export_summary()
@@ -1064,6 +1062,7 @@ def solve_informedV2(
         print(f"Logging statistics to {logpath + 'stats.json'}")
         store.write_to_json(os.path.join(logpath, "stats.json"))
 
+    model.after_run(store=store, expanded=expanded, logpath=logpath)
     return store.extract_solution()
 
 def print_pddl_plan(opt_plan):   
