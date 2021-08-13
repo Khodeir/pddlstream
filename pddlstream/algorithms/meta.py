@@ -279,6 +279,7 @@ def solve(
             use_unique=use_unique,
             search_sample_ratio=search_sample_ratio,
             stream_info=stream_info,
+            eager_mode=eager_mode,
             ** search_kwargs
         )
     raise NotImplementedError(algorithm)
