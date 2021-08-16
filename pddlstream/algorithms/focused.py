@@ -586,13 +586,13 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable, N=10):
+def should_planV2(iteration, Q, reachable, N=10, K=20):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
     res = False
     if len(Q) == 0:
         res = True
-    elif (iteration % 20 == 0) and (len(reachable) >= should_planV2.last_reachable_count + N):
+    elif (iteration % K == 0) and (len(reachable) >= should_planV2.last_reachable_count + N):
         res = True
 
     if res:
@@ -803,6 +803,7 @@ def solve_informedV2(
     streams, functions, negative, optimizers = partition_externals(
         externals, verbose=verbose
     )
+    model.set_infos(domain, externals, goal_exp, evaluations)
     optimistic_solve_fn = get_optimistic_solve_fn(
         goal_exp,
         domain,
@@ -818,7 +819,6 @@ def solve_informedV2(
     )
     skeleton_queue = SkeletonQueue(store, domain, disable=True)
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
-    model.set_infos(domain, externals, goal_exp, evaluations)
     iteration = 0
     last_sample_time = time.time()
     instantiator = ResultInstantiator(streams)

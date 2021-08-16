@@ -119,6 +119,10 @@ SEARCH_OPTIONS = {
     'ff-ehc': '--heuristic "h=ff(transform=adapt_costs(cost_type=PLUSONE))" '
               '--search "ehc(h,preferred=[h],preferred_usage=RANK_PREFERRED_FIRST,'
               'cost_type=PLUSONE,max_time=%s,bound=%s)"',
+    'lama-first':  "--evaluator" \
+    " 'hlm=lmcount(lm_factory=lm_rhw(reasonable_orders=true),transform=adapt_costs(one),pref=false)'" \
+    " --evaluator" " 'hff=ff(transform=adapt_costs(one))'" \
+    " --search" " 'lazy_greedy([hff,hlm],preferred=[hff,hlm],cost_type=one,reopen_closed=false,max_time=%s,bound=%s)'"
     # The key difference is that ehc resets the open list upon finding an improvement
 }
 # TODO: do I want to sort operators in FD hill-climbing search?
