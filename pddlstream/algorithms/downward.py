@@ -159,7 +159,7 @@ if USE_CERBERUS:
                                           for s in mod.config_string())
 
 # TODO: throw a warning if max_planner_time is met
-DEFAULT_MAX_TIME = 30 # INF
+DEFAULT_MAX_TIME = 10 # INF
 DEFAULT_CONSERVATIVE_PLANNER = 'ff-astar'
 DEFAULT_GREEDY_PLANNER = 'ff-astar2'
 DEFAULT_PLANNER = DEFAULT_GREEDY_PLANNER
