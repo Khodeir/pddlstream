@@ -16,14 +16,14 @@ from pddlstream.utils import INF, Verbose, safe_rm_dir, elapsed_time
 # TODO: recursive application of these
 # TODO: write the domain and problem PDDL files that are used for debugging purposes
 
-def solve_from_task(sas_task, temp_dir=TEMP_DIR, clean=False, debug=False, hierarchy=[], **search_args):
+def solve_from_task(sas_task, temp_dir=TEMP_DIR, clean=False, debug=False, hierarchy=[], store=None, **search_args):
     # TODO: can solve using another planner and then still translate using FastDownward
     # Can apply plan constraints (skeleton constraints) here as well
     start_time = time()
     with Verbose(debug):
         print('\n' + 50*'-' + '\n')
         write_sas_task(sas_task, temp_dir)
-        solution = run_search(temp_dir, debug=True, **search_args)
+        solution = run_search(temp_dir, debug=True, store=store, **search_args)
         if clean:
             safe_rm_dir(temp_dir)
         print('Total runtime: {:.3f}'.format(elapsed_time(start_time)))

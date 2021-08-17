@@ -890,6 +890,7 @@ def solve_informedV2(
             print("QUEUE EMPTY")
 
         if should_planV2(iteration, Q, I_star.reachable_evals):
+            store.change_results(len(I_star.results))
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}. Expanded: {len(expanded)}.", end=" "
             )
@@ -1039,6 +1040,7 @@ def solve_informedV2(
             I_star.remove_disabled()
             remove_orphaned(I_star, evaluations, instantiator)
             assert_no_orphans(I_star, evaluations)
+            store.change_evaluations(len(evaluations))
 
     ################
 
@@ -1050,6 +1052,7 @@ def solve_informedV2(
             "skeletons": len(skeleton_queue.skeletons),
         }
     )
+    summary['expanded'] = len(expanded)
 
     store.change_complexity(INF)
     store.change_evaluations(summary["evaluations"])
