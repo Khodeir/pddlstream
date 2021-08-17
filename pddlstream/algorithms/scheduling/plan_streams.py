@@ -35,6 +35,7 @@ from pddlstream.language.temporal import SimplifiedDomain, solve_tfd
 from pddlstream.language.write_pddl import get_problem_pddl
 from pddlstream.language.object import Object
 from pddlstream.utils import Verbose, INF, topological_sort, get_ancestors
+import time
 
 RENAME_ACTIONS = False
 #RENAME_ACTIONS = not USE_FORBID
@@ -305,13 +306,17 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
     temporal_plan = None
     problem = get_problem(opt_evaluations, goal_expression, stream_domain)  # begin_metric
     pddl_prob = get_problem_pddl(opt_evaluations, goal_expression, domain.pddl, temporal=False)
-    store = kwargs.pop("store", None)
+    store = kwargs.get("store", None)
     if store is not None:
         store.pddl_problems.append(pddl_prob)
+
+    start_time = time.time()
     with Verbose(verbose=debug):
         task = task_from_domain_problem(stream_domain, problem)
         instantiated = instantiate_task(task)
     if instantiated is None:
+        if store is not None:
+            store.record_translation(time.time() - start_time)
         return instantiated, None, temporal_plan, INF
 
     cost_from_action = {action: action.cost for action in instantiated.actions}
@@ -327,6 +332,8 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
         #sas_task.metric = task.use_min_cost_metric
         sas_task.metric = True
 
+    if store is not None:
+        store.record_translation(time.time() - start_time)
     # TODO: apply renaming to hierarchy as well
     # solve_from_task | serialized_solve_from_task | abstrips_solve_from_task | abstrips_solve_from_task_sequential
     renamed_plan, _ = solve_from_task(sas_task, debug=debug, **kwargs)

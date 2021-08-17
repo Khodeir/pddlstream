@@ -389,7 +389,7 @@ def normalize_domain_goal(domain, goal_exp):
     return task
 
 def run_search(temp_dir, planner=DEFAULT_PLANNER, max_planner_time=DEFAULT_MAX_TIME,
-               max_cost=INF, debug=False):
+               max_cost=INF, debug=False, store=None):
     """
     Runs FastDownward's search phase on translated SAS+ problem TRANSLATE_OUTPUT
     :param temp_dir: the directory for temporary FastDownward input and output files
@@ -434,6 +434,8 @@ def run_search(temp_dir, planner=DEFAULT_PLANNER, max_planner_time=DEFAULT_MAX_T
 
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True, cwd=None, close_fds=True)
     output, error = proc.communicate()
+    if store is not None:
+        store.record_fd_stats(output)
 
     if USE_FORBID:
         for filename in os.listdir(FORBID_PATH):

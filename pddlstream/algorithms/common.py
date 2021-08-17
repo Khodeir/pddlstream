@@ -1,3 +1,4 @@
+import re
 import time
 import json
 import pickle
@@ -54,6 +55,8 @@ class SolutionStore(object):
         self.last_facts_node_from_atom = {} # the ancestor map for self.last_facts
         self.opt_plans = []
         self.pddl_problems = []
+        self.fd_stats = []
+        self.translate_stats = []
 
     @property
     def search_time(self):
@@ -213,9 +216,37 @@ class SolutionStore(object):
             "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
             "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans],
             "pddl_problems": self.pddl_problems,
+            "fd_stats": self.fd_stats
         }
         with open(jsonpath, "a") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
+    
+    def record_translation(self, trans_time):
+        self.fd_stats.append(dict(translation_time=trans_time))
+    def record_fd_stats(self, fd_output):
+        fd_output = fd_output.decode('utf8')
+        expanded = re.search('Expanded (\d+) state\(s\)', fd_output).group(1)
+        evaluated = re.search('Evaluated (\d+) state\(s\)', fd_output).group(1)
+        generated = re.search('Generated (\d+) state\(s\)', fd_output).group(1)
+        registered = re.search('Number of registered states: (\d+)', fd_output).group(1)
+        search_time = re.search('Search time: ([0-9.]+)s', fd_output).group(1)
+        total_time = re.search('Total time: ([0-9.]+)s', fd_output).group(1)
+        kb_memory = re.search('Peak memory: (\d+) KB', fd_output).group(1)
+        solved = bool(re.search('Solution found.', fd_output))
+        timeout = bool(re.search('Time limit reached.', fd_output))
+
+        self.fd_stats[-1].update(dict(
+            expanded=int(expanded),
+            evaluated=int(evaluated),
+            generated=int(generated),
+            registered=int(registered),
+            kb_memory=int(kb_memory),
+            search_time=float(search_time),
+            total_time=float(total_time),
+            solved=solved,
+            timeout=timeout
+        ))
+
 
 
 import numpy as np
