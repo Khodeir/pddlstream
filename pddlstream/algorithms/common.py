@@ -218,7 +218,7 @@ class SolutionStore(object):
             "pddl_problems": self.pddl_problems,
             "fd_stats": self.fd_stats
         }
-        with open(jsonpath, "a") as stream:
+        with open(jsonpath, "w") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
     
     def record_translation(self, trans_time):
