@@ -57,6 +57,7 @@ class SolutionStore(object):
         self.pddl_problems = []
         self.fd_stats = []
         self.translate_stats = []
+        self.scoring_time = 0
 
     @property
     def search_time(self):
@@ -216,13 +217,16 @@ class SolutionStore(object):
             "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
             "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans],
             "pddl_problems": self.pddl_problems,
-            "fd_stats": self.fd_stats
+            "fd_stats": self.fd_stats,
+            "scoring_time": self.scoring_time
         }
         with open(jsonpath, "w") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
     
     def record_translation(self, trans_time):
         self.fd_stats.append(dict(translation_time=trans_time))
+    def record_scoring(self, score_time):
+        self.scoring_time += score_time
     def record_fd_stats(self, fd_output):
         fd_output = fd_output.decode('utf8')
         expanded = re.search('Expanded (\d+) state\(s\)', fd_output).group(1)

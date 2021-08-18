@@ -735,14 +735,16 @@ class OptimisticResults:
 def reduce_score(score, num_visits, gamma = 0.8):
     return (gamma**num_visits)*score
 
-def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels):
+def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels, store):
     # can't just use setdefault because it is not lazy
+    start_time = time.time()
     instance = result.instance
     is_refined = instance.is_refined()
     if instance in instance_history:
         score, num_visits, was_refined = instance_history[instance]
         if was_refined == is_refined:
             instance_history[instance] = (score, num_visits + 1, was_refined)
+            store.record_scoring(time.time() - start_time)
             return score, num_visits
         else:
             assert not was_refined and is_refined, "Somehow the instance got unrefined"
@@ -751,6 +753,7 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom,
     num_visits = 0
     score = -model.predict(result, node_from_atom, levels=levels)
     instance_history[instance] = (score, num_visits +1, is_refined)
+    store.record_scoring(time.time() - start_time)
     return score, num_visits
 
 def remove_orphaned(I_star, evaluations, instantiator):
@@ -830,14 +833,13 @@ def solve_informedV2(
     expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
-        score = -model.predict(opt_result, I_star.node_from_atom, levels=I_star.level)
+        score, _ = get_score_and_update_visits(instance_history, opt_result, model, node_from_atom=I_star.node_from_atom, levels=I_star.level, store=store)
         if EAGER_MODE:
             I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
             instantiator.add_certified_from_result(opt_result, expand=False)
         if opt_result not in Q:
             Q.push_result(opt_result, score)
-            instance_history[opt_result.instance] = (score, 1, opt_result.is_refined())
     I_star.update_reachable(evaluations, assert_no_orphans=True)
 
     while (
@@ -881,7 +883,7 @@ def solve_informedV2(
                     # the only way this happens is if these results were added as part of
                     # refinement or sampling 
                     continue # do not re-add here
-                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level)
+                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level, store=store)
                 # TODO: should score be reduced here?
                 Q.push_result(new_result, score)
             assert_no_orphans(I_star, evaluations)
@@ -963,7 +965,7 @@ def solve_informedV2(
 
                     if result not in Q and result not in expanded:
                         score, _ = get_score_and_update_visits(
-                            instance_history, result, model, I_star.node_from_atom, I_star.level
+                            instance_history, result, model, I_star.node_from_atom, I_star.level, store=store
                         )
                         Q.push_result(result, score)
 
@@ -1006,7 +1008,7 @@ def solve_informedV2(
                     instantiator.add_certified_from_result(result, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
-                    instance_history, result, model, I_star.node_from_atom, I_star.level
+                    instance_history, result, model, I_star.node_from_atom, I_star.level, store=store
                 )
                 score = reduce_score(score, num_visits)
 
