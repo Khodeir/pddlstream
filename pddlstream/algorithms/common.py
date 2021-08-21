@@ -233,7 +233,12 @@ class SolutionStore(object):
         evaluated = re.search('Evaluated (\d+) state\(s\)', fd_output).group(1)
         generated = re.search('Generated (\d+) state\(s\)', fd_output).group(1)
         registered = re.search('Number of registered states: (\d+)', fd_output).group(1)
-        search_time = re.search('Search time: ([0-9.]+)s', fd_output).group(1)
+        search_time = re.search('Search time: ([0-9.]+)s', fd_output)
+        if search_time is not None:
+            search_time = search_time.group(1)
+        else:
+            #assert False, fd_output
+            search_time = 0
         total_time = re.search('Total time: ([0-9.]+)s', fd_output).group(1)
         kb_memory = re.search('Peak memory: (\d+) KB', fd_output).group(1)
         solved = bool(re.search('Solution found.', fd_output))
