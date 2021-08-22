@@ -124,9 +124,23 @@ def check_dominated(skeleton_queue, stream_plan):
 
 ##################################################
 
-
-def signal_handler(store, logpath, sig, frame):
+def signal_handler(store, logpath, sig, frame, extra_info = None):
     print("You pressed ctrl-C")
+    summary = store.export_summary()
+
+    if extra_info is not None:
+        print(extra_info)
+        summary.update(
+            {
+                "iterations": extra_info["num_iterations"],
+                "complexity": extra_info["complexity_limit"],
+                "skeletons": extra_info["num_skeletons"],
+            }
+        )
+
+        store.change_complexity(extra_info["complexity_limit"])
+    store.change_evaluations(summary["evaluations"])
+    store.add_summary(summary)
     if not (logpath is None):
         print(f"Logging statistics to {logpath + 'stats.json'}")
         store.write_to_json(logpath + "stats.json")
@@ -202,6 +216,10 @@ def solve_abstract(
     # TODO: locally optimize only after a solution is identified
     # TODO: replan with a better search algorithm after feasible
     # TODO: change the search algorithm and unit costs based on the best cost
+    extra_info = {} #TODO: fix this crap
+    extra_info["num_skeletons"] = 0
+    extra_info["complexity_limit"] = 0
+    extra_info["num_iterations"] = 0
     use_skeletons = max_skeletons is not None
     # assert implies(use_skeletons, search_sample_ratio > 0)
     eager_disabled = effort_weight is None  # No point if no stream effort biasing
@@ -245,7 +263,7 @@ def solve_abstract(
     skeleton_queue = SkeletonQueue(store, domain, disable=not has_optimizers)
     disabled = set()  # Max skeletons after a solution
 
-    signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
+    signal.signal(signal.SIGINT, partial(signal_handler,  store, logpath, extra_info = extra_info))
     if oracle is not None:
         oracle.set_infos(domain, externals, goal_exp, evaluations)
 
@@ -255,6 +273,7 @@ def solve_abstract(
         and (complexity_limit <= max_complexity)
     ):
         num_iterations += 1
+        extra_info["num_iterations"] = num_iterations
         eager_instantiator = Instantiator(
             eager_externals, evaluations
         )  # Only update after an increase?
@@ -336,6 +355,7 @@ def solve_abstract(
                 INFEASIBLE, INFEASIBLE, INF
             )  # TODO: apply elsewhere
 
+        extra_info["num_skeletons"] = len(skeleton_queue.skeletons)
         ################
 
         # stream_plan = replan_with_optimizers(evaluations, stream_plan, domain, externals) or stream_plan
@@ -380,6 +400,7 @@ def solve_abstract(
                 )
             )
             complexity_limit += complexity_step
+            extra_info["complexity_limit"] = complexity_limit
             store.change_complexity(complexity_limit)
             if not eager_disabled:
                 reenable_disabled(evaluations, domain, disabled)
