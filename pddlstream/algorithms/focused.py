@@ -685,7 +685,8 @@ class OptimisticResults:
         for atom in evaluations:
             fact = fact_from_evaluation(atom)
             node_from_atom[fact] = Node(0, evaluations[atom].result)
-            atom_map[fact_to_pddl(fact)] = [fact_to_pddl(f) for f in evaluations[atom].result.domain] if evaluations[atom].result else []
+            if not isinstance(evaluations[atom].result, bool):
+                atom_map[fact_to_pddl(fact)] = [fact_to_pddl(f) for f in evaluations[atom].result.domain] if (evaluations[atom].result is not None) else []
         ordered_results = []
         deferred = set()
         orphaned = set()
