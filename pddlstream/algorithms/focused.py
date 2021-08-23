@@ -2,7 +2,7 @@ from __future__ import print_function
 from copy import copy, deepcopy
 from heapq import heappush, heappop
 from itertools import count
-from learning.pddlstream_utils import make_atom_map
+from learning.pddlstream_utils import fact_to_pddl, make_atom_map
 import os
 
 import time
@@ -630,6 +630,7 @@ class OptimisticResults:
         self.level = dict()
         self.node_from_atom = dict()
         self.unrefined_facts = set()
+        self.atom_map = {}
 
     def add(self, result):
         assert isinstance(result, HashableStreamResult)
@@ -657,6 +658,7 @@ class OptimisticResults:
             if is_refined:
                 assert result.is_refined() and result.is_input_refined_recursive()
                 self.node_from_atom[atom] = self.node_from_atom.get(atom, Node(0, result))
+                self.atom_map[fact_to_pddl(atom)] = [fact_to_pddl(f) for f in result.domain]
             else:
                 assert not (result.is_refined() and result.is_input_refined_recursive())
                 self.unrefined_facts.add(cert)
@@ -679,8 +681,12 @@ class OptimisticResults:
 
         evals = set(evaluations)
         node_from_atom = {}
+        atom_map = {}
         for atom in evaluations:
-            node_from_atom[fact_from_evaluation(atom)] = Node(0, evaluations[atom].result)
+            fact = fact_from_evaluation(atom)
+            node_from_atom[fact] = Node(0, evaluations[atom].result)
+            if not isinstance(evaluations[atom].result, bool):
+                atom_map[fact_to_pddl(fact)] = []
         ordered_results = []
         deferred = set()
         orphaned = set()
@@ -702,6 +708,7 @@ class OptimisticResults:
                     if is_refined:
                         assert result.is_refined() and result.is_input_refined_recursive()
                         node_from_atom[atom] = node_from_atom.get(atom, Node(0, result))
+                        atom_map[fact_to_pddl(atom)] = [fact_to_pddl(f) for f in result.domain]
                     else:
                         assert not (result.is_refined() and result.is_input_refined_recursive())
                         unrefined_facts.add(cert)
@@ -716,6 +723,7 @@ class OptimisticResults:
         self.reachable_evals = evals
         self.level = level
         self.node_from_atom = node_from_atom
+        self.atom_map = atom_map
 
         if assert_no_orphans:
             assert not orphaned 
@@ -756,7 +764,7 @@ class OptimisticResults:
 def reduce_score(score, num_visits, gamma = 0.8):
     return (gamma**num_visits)*score
 
-def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels, store):
+def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels, store, atom_map = None):
     # can't just use setdefault because it is not lazy
     start_time = time.time()
     instance = result.instance
@@ -772,7 +780,7 @@ def get_score_and_update_visits(instance_history, result, model, node_from_atom,
             # TODO: going to reset visits to 0. Right?
             # print("Instance has been refined since last time. Rescoring.", instance)
     num_visits = 0
-    score = -model.predict(result, node_from_atom, levels=levels)
+    score = -model.predict(result, node_from_atom, levels=levels, atom_map = atom_map)
     instance_history[instance] = (score, num_visits +1, is_refined)
     store.record_scoring(time.time() - start_time)
     return score, num_visits
@@ -854,7 +862,7 @@ def solve_informedV2(
     expanded = set()
     instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
-        score, _ = get_score_and_update_visits(instance_history, opt_result, model, node_from_atom=I_star.node_from_atom, levels=I_star.level, store=store)
+        score, _ = get_score_and_update_visits(instance_history, opt_result, model, node_from_atom=I_star.node_from_atom, levels=I_star.level, store=store, atom_map = I_star.atom_map)
         if EAGER_MODE:
             I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
@@ -904,7 +912,7 @@ def solve_informedV2(
                     # the only way this happens is if these results were added as part of
                     # refinement or sampling 
                     continue # do not re-add here
-                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level, store=store)
+                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map)
                 # TODO: should score be reduced here?
                 Q.push_result(new_result, score)
             assert_no_orphans(I_star, evaluations)
@@ -986,7 +994,7 @@ def solve_informedV2(
 
                     if result not in Q and result not in expanded:
                         score, _ = get_score_and_update_visits(
-                            instance_history, result, model, I_star.node_from_atom, I_star.level, store=store
+                            instance_history, result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
                         )
                         Q.push_result(result, score)
 
@@ -1029,7 +1037,7 @@ def solve_informedV2(
                     instantiator.add_certified_from_result(result, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
                 score, num_visits = get_score_and_update_visits(
-                    instance_history, result, model, I_star.node_from_atom, I_star.level, store=store
+                    instance_history, result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
                 )
                 score = reduce_score(score, num_visits)
 
