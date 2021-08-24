@@ -608,14 +608,19 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable, N=10, K=20):
+def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N=10, K=20):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
     res = False
     if len(Q) == 0:
         res = True
     elif (iteration % K == 0) and (len(reachable) >= should_planV2.last_reachable_count + N):
-        res = True
+        since_last = time.time() - last_plan_time
+        # print(f'{last_plan_time}, {last_plan_duration}, {since_last}')
+        if since_last < last_plan_duration:
+            res = False
+        else:
+            res = True
 
     if res:
         should_planV2.last_reachable_count = len(reachable)
@@ -839,6 +844,7 @@ def solve_informedV2(
     skeleton_queue = SkeletonQueue(store, domain, disable=True)
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))
     iteration = 0
+    end_plan = duration = 0
     last_sample_time = time.time()
     instantiator = ResultInstantiator(streams)
     Q = ResultQueue()
@@ -906,7 +912,7 @@ def solve_informedV2(
             force_sample = True
             print("QUEUE EMPTY")
 
-        if should_planV2(iteration, Q, I_star.reachable_evals):
+        if should_planV2(iteration, Q, I_star.reachable_evals, end_plan, duration):
             store.change_results(len(I_star.results))
             print(
                 f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}. Expanded: {len(expanded)}.", end=" "
@@ -919,7 +925,9 @@ def solve_informedV2(
             stream_plan, opt_plan, cost = optimistic_solve_fn(
                 evaluations, I_star.ordered_results, None, store=store
             )  # psi, pi*
-            print(f'duration: {time.time() - start_plan}')
+            end_plan = time.time()
+            duration = end_plan - start_plan
+            print(f'duration: {duration}')
             if is_plan(opt_plan) and not is_refined(stream_plan):
                 print("Found Unrefined Plan")
                 # print_pddl_plan(opt_plan)
@@ -1091,7 +1099,7 @@ def print_pddl_plan(opt_plan):
     for action in opt_plan.action_plan:
         if action.name == prev_name:
             wrong = True
-        print("\t", action.name, [o.pddl for o in action.args])
+        print("\t", action.name, [o for o in action.args])
         prev_name = action.name
 
     if wrong:
