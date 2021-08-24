@@ -765,12 +765,11 @@ class OptimisticResults:
 def reduce_score(score, num_visits, gamma = 0.8):
     return (gamma**num_visits)*score
 
-def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels, store, atom_map = None):
+def get_score_and_update_visits(result, model, node_from_atom, levels, store, atom_map = None):
     start_time = time.time()
-    num_visits = 0
     score = -model.predict(result, node_from_atom, levels=levels, atom_map=atom_map)
     store.record_scoring(time.time() - start_time)
-    return score, num_visits
+    return score
 
 def remove_orphaned(I_star, evaluations, instantiator):
     I_star.update_reachable(evaluations)
@@ -848,9 +847,8 @@ def solve_informedV2(
     ALLOW_CHILDREN_BEFORE_EXPANSION = False # whether to add results to instantiator prior to expansion
     EAGER_MODE = eager_mode # whether to add all new results to I_star immediately
     expanded = set()
-    instance_history = {} # map from result to (original_score, num_visits)
     for opt_result in instantiator.initialize_results(evaluations):
-        score, _ = get_score_and_update_visits(instance_history, opt_result, model, node_from_atom=I_star.node_from_atom, levels=I_star.level, store=store, atom_map = I_star.atom_map)
+        score = get_score_and_update_visits(opt_result, model, node_from_atom=I_star.node_from_atom, levels=I_star.level, store=store, atom_map = I_star.atom_map)
         if EAGER_MODE:
             I_star.add(opt_result)
         if ALLOW_CHILDREN_BEFORE_EXPANSION:
@@ -900,7 +898,7 @@ def solve_informedV2(
                     # the only way this happens is if these results were added as part of
                     # refinement or sampling 
                     continue # do not re-add here
-                score, _ = get_score_and_update_visits(instance_history, new_result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map)
+                score = get_score_and_update_visits(new_result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map)
                 # TODO: should score be reduced here?
                 Q.push_result(new_result, score)
             assert_no_orphans(I_star, evaluations)
@@ -981,8 +979,8 @@ def solve_informedV2(
                         instantiator.add_certified_from_result(result, expand=False)
 
                     if result not in Q and result not in expanded:
-                        score, _ = get_score_and_update_visits(
-                            instance_history, result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
+                        score = get_score_and_update_visits(
+                            result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
                         )
                         Q.push_result(result, score)
 
@@ -1024,11 +1022,9 @@ def solve_informedV2(
                     # used to instantiate new results in subsequent iterations
                     instantiator.add_certified_from_result(result, expand = False)
                 # TODO: check if grounded instance will be treated the same as optimistic instance (ie same hash)
-                score, num_visits = get_score_and_update_visits(
-                    instance_history, result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
+                score = get_score_and_update_visits(
+                    result, model, I_star.node_from_atom, I_star.level, store=store, atom_map = I_star.atom_map
                 )
-                score = reduce_score(score, num_visits)
-
                 assert result not in Q
                 assert result not in expanded
                 Q.push_result(result, score)
@@ -1050,8 +1046,8 @@ def solve_informedV2(
                 #     assert result.external.is_fluent or result.instance.disabled
                 #     # TODO: If this assert never fires we can get rid of the things below
                 #     if not (result.instance.enumerated or result.instance.disabled):
-                #         score, num_visits = get_score_and_update_visits(
-                #             instance_history, result, model, I_star.node_from_atom
+                #         score = get_score_and_update_visits(
+                #             result, model, I_star.node_from_atom
                 #         )
                 #         score = reduce_score(score, num_visits) 
                 #         Q.push_result(result, score)
