@@ -173,6 +173,7 @@ def solve_abstract(
     logpath=None,
     oracle=None,
     use_unique=False,
+    problem_file_path = None,
     **search_kwargs,
 ):
     """
@@ -258,7 +259,7 @@ def solve_abstract(
     ################
 
     store = SolutionStore(
-        evaluations, max_time, success_cost, verbose, max_memory=max_memory
+        evaluations, max_time, success_cost, verbose, max_memory=max_memory, problem_file_path = problem_file_path
     )
     skeleton_queue = SkeletonQueue(store, domain, disable=not has_optimizers)
     disabled = set()  # Max skeletons after a solution
@@ -804,6 +805,7 @@ def solve_informedV2(
     visualize_atom_maps=False,
     stream_info={},
     eager_mode=False,
+    problem_file_path = None,
     **search_kwargs,
 ):
     evaluations, goal_exp, domain, externals = parse_problem(
@@ -833,7 +835,7 @@ def solve_informedV2(
     )
     success_cost = INF
     store = SolutionStore(
-        evaluations, max_time, success_cost, verbose, max_memory=max_memory
+        evaluations, max_time, success_cost, verbose, max_memory=max_memory, problem_file_path = problem_file_path
     )
     skeleton_queue = SkeletonQueue(store, domain, disable=True)
     signal.signal(signal.SIGINT, partial(signal_handler, store, logpath))

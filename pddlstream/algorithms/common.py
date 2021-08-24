@@ -26,11 +26,12 @@ Solution = namedtuple('Solution', ['plan', 'cost', 'time'])
 SOLUTIONS = [] # TODO: remove global variable
 
 class SolutionStore(object):
-    def __init__(self, evaluations, max_time, success_cost, verbose, max_memory=INF):
+    def __init__(self, evaluations, max_time, success_cost, verbose, max_memory=INF, problem_file_path = None):
         # TODO: store a map from head to value?
         # TODO: include other problem information here?
         # TODO: determine when the plan converges
         self.evaluations = evaluations
+        self.problem_file_path = problem_file_path
         #self.initial_evaluations = copy.copy(evaluations)
         self.start_time = time.time()
         self.max_time = max_time
@@ -218,7 +219,8 @@ class SolutionStore(object):
             "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans],
             "pddl_problems": self.pddl_problems,
             "fd_stats": self.fd_stats,
-            "scoring_time": self.scoring_time
+            "scoring_time": self.scoring_time,
+            "problem_file_path": self.problem_file_path
         }
         with open(jsonpath, "w") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
