@@ -765,23 +765,9 @@ def reduce_score(score, num_visits, gamma = 0.8):
     return (gamma**num_visits)*score
 
 def get_score_and_update_visits(instance_history, result, model, node_from_atom, levels, store, atom_map = None):
-    # can't just use setdefault because it is not lazy
     start_time = time.time()
-    instance = result.instance
-    is_refined = instance.is_refined()
-    if instance in instance_history:
-        score, num_visits, was_refined = instance_history[instance]
-        if was_refined == is_refined:
-            instance_history[instance] = (score, num_visits + 1, was_refined)
-            store.record_scoring(time.time() - start_time)
-            return score, num_visits
-        else:
-            assert not was_refined and is_refined, "Somehow the instance got unrefined"
-            # TODO: going to reset visits to 0. Right?
-            # print("Instance has been refined since last time. Rescoring.", instance)
     num_visits = 0
-    score = -model.predict(result, node_from_atom, levels=levels, atom_map = atom_map)
-    instance_history[instance] = (score, num_visits +1, is_refined)
+    score = -model.predict(result, node_from_atom, levels=levels, atom_map=atom_map)
     store.record_scoring(time.time() - start_time)
     return score, num_visits
 
