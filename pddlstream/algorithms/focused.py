@@ -915,7 +915,7 @@ def solve_informedV2(
         if should_planV2(iteration, Q, I_star.reachable_evals, end_plan, duration):
             store.change_results(len(I_star.results))
             print(
-                f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}. Expanded: {len(expanded)}.", end=" "
+                f"Planning. # optim: {len(I_star)}. # grounded: {len(evaluations)}. Queue length: {len(Q)}. Skeleton Queue: {len(skeleton_queue.queue)}. Expanded: {len(expanded)}.", end=" "
             )
             if visualize_atom_maps:
                 visualize_atom_map(
@@ -923,7 +923,7 @@ def solve_informedV2(
                 )
             start_plan = time.time()
             stream_plan, opt_plan, cost = optimistic_solve_fn(
-                evaluations, I_star.ordered_results, None, store=store
+                {e:n for e,n in evaluations.items() if n.complexity < INF}, I_star.ordered_results, None, store=store
             )  # psi, pi*
             end_plan = time.time()
             duration = end_plan - start_plan
