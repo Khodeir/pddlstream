@@ -350,6 +350,8 @@ def solve_optimistic_sequential(domain, stream_domain, applied_results, all_resu
 def plan_streams(evaluations, goal_expression, domain, all_results, negative, effort_weight, max_effort,
                  simultaneous=False, reachieve=True, replan_actions=set(), **kwargs):
     store = kwargs.get("store", None)
+    if store:
+        store.start_planning_time()
     # TODO: alternatively could translate with stream actions on real opt_state and just discard them
     # TODO: only consider axioms that have stream conditions?
     #reachieve = reachieve and not using_optimizers(all_results)
@@ -378,6 +380,8 @@ def plan_streams(evaluations, goal_expression, domain, all_results, negative, ef
         domain, stream_domain, applied_results, all_results, opt_evaluations,
         node_from_atom, goal_expression, effort_weight, **kwargs)
     if action_instances is None:
+        if store:
+            store.end_planning_time()
         return OptSolution(FAILED, FAILED, cost)
 
     action_instances, axiom_plans = recover_axioms_plans(instantiated, action_instances)
@@ -396,4 +400,6 @@ def plan_streams(evaluations, goal_expression, domain, all_results, negative, ef
         # TODO: handle deferred streams
         assert all(isinstance(action, Action) for action in opt_plan.action_plan)
         opt_plan.action_plan[:] = temporal_plan
+    if store:
+        store.end_planning_time()
     return OptSolution(stream_plan, opt_plan, cost)

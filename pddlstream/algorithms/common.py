@@ -59,6 +59,8 @@ class SolutionStore(object):
         self.fd_stats = []
         self.translate_stats = []
         self.scoring_time = 0
+        self.planning_time = 0
+        self.skeleton_time = 0
 
     @property
     def search_time(self):
@@ -182,6 +184,14 @@ class SolutionStore(object):
 
     def record_unrefined(self):
         self.unrefined.append(time.time() - self.start_time)
+    def start_planning_time(self):
+        self.planning_time -= time.time()
+    def end_planning_time(self):
+        self.planning_time += time.time()
+    def start_skeleton_time(self):
+        self.skeleton_time -= time.time()
+    def end_skeleton_time(self):
+        self.skeleton_time += time.time()
 
     def node_from_atom_to_atom_map(self, node_from_atom):
         atom_map = {}
@@ -220,6 +230,8 @@ class SolutionStore(object):
             "pddl_problems": self.pddl_problems,
             "fd_stats": self.fd_stats,
             "scoring_time": self.scoring_time,
+            "planning_time": self.planning_time,
+            "skeleton_time": self.skeleton_time,
             "problem_file_path": self.problem_file_path
         }
         with open(jsonpath, "w") as stream:

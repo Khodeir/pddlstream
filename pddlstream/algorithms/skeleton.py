@@ -438,13 +438,16 @@ class SkeletonQueue(Sized):
         self.all_results = []
         self.processed_results = []
         start_time = time.time()
+        self.store.start_skeleton_time()
         if is_plan(stream_plan):
             self.new_skeleton(stream_plan, action_plan, cost)
             self.greedily_process()
         elif (stream_plan is INFEASIBLE) and not self.process_until_new():
             # Move this after process_complexity
+            self.store.end_skeleton_time()
             return INFEASIBLE
         if not self.queue:
+            self.store.end_skeleton_time()
             return FAILED
 
         # TODO: add and process
@@ -452,4 +455,5 @@ class SkeletonQueue(Sized):
         self.process_complexity(complexity_limit)
         if accelerate:
            self.accelerate_best_bindings()
+        self.store.end_skeleton_time()
         return FAILED
