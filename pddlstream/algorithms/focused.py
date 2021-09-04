@@ -616,10 +616,11 @@ def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N
     time_since_last = time.time() - last_plan_time
     iterations_since_last = iteration - should_planV2.last_iteration
     res = False
-    if iterations_since_last < K:
-        res = False
-    elif len(Q) == 0:
+
+    if len(Q) == 0:
         res = True
+    elif iterations_since_last < K:
+        res = False
     elif newly_reachable > N_max:
         res = True
     elif newly_reachable >= N_min and time_since_last >= 0.1*last_plan_duration:
@@ -628,8 +629,9 @@ def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N
     if res:
         should_planV2.last_iteration = iteration
         should_planV2.last_reachable_count = len(reachable)
-    
+
     return res
+
 class OptimisticResults:
 
     def __init__(self):
