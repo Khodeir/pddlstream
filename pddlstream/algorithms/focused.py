@@ -608,7 +608,7 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N=10, K=20):
+def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N=50, K=100):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
     res = False
@@ -1015,7 +1015,7 @@ def solve_informedV2(
             else:
                 sample_time = search_sample_ratio * since_last_sample
             skeleton_queue.process(
-                stream_plan, opt_plan, cost, 0, sample_time
+                stream_plan, opt_plan, cost, 0, min(sample_time, 10)
             )
             last_sample_time = time.time()
             I_star.update_reachable(evaluations, assert_no_orphans=True)
