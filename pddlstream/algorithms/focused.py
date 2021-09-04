@@ -608,25 +608,28 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N=50, K=100):
+def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N_min=50, N_max=500, K=50):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
+        should_planV2.last_iteration = 0
+    newly_reachable = len(reachable) - should_planV2.last_reachable_count
+    time_since_last = time.time() - last_plan_time
+    iterations_since_last = iteration - should_planV2.last_iteration
     res = False
-    if len(Q) == 0:
+    if iterations_since_last < K:
+        res = False
+    elif len(Q) == 0:
         res = True
-    elif (iteration % K == 0) and (len(reachable) >= should_planV2.last_reachable_count + N):
-        since_last = time.time() - last_plan_time
-        # print(f'{last_plan_time}, {last_plan_duration}, {since_last}')
-        if since_last < last_plan_duration:
-            res = False
-        else:
-            res = True
+    elif newly_reachable > N_max:
+        res = True
+    elif newly_reachable >= N_min and time_since_last >= 0.1*last_plan_duration:
+        res = True
 
     if res:
+        should_planV2.last_iteration = iteration
         should_planV2.last_reachable_count = len(reachable)
     
     return res
-
 class OptimisticResults:
 
     def __init__(self):
