@@ -608,7 +608,7 @@ class ResultQueue:
     def __len__(self):
         return len(self.Q)
 
-def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N_min=50, N_max=500, K=50):
+def should_planV2(iteration, Q, reachable, last_plan_time, last_plan_duration, N_min=50, N_max=500, K=100):
     if not hasattr(should_planV2, 'last_reachable_count'):
         should_planV2.last_reachable_count = 0
         should_planV2.last_iteration = 0
