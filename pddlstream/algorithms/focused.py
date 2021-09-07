@@ -472,7 +472,8 @@ def solve_abstract(
     if not (logpath is None):
         print(f"Logging statistics to {logpath + 'stats.json'}")
         store.write_to_json(logpath + "stats.json")
-
+        if oracle is not None:
+            oracle.after_run(store=store, logpath=logpath)
     return store.extract_solution()
 
 
