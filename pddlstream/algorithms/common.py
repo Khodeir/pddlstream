@@ -224,15 +224,16 @@ class SolutionStore(object):
             "unrefined": self.unrefined,
             "last_preimage": list(self.last_preimage),
             "atom_map": list(self.node_from_atom_to_atom_map(self.last_node_from_atom).items()),
-            "last_facts": list(self.last_facts),
-            "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
+           # "last_facts": list(self.last_facts),
+           # "last_facts_atom_map": list(self.node_from_atom_to_atom_map(self.last_facts_node_from_atom).items()),
             "action_plans": [opt_plan.action_plan for opt_plan in self.opt_plans],
             "pddl_problems": self.pddl_problems,
             "fd_stats": self.fd_stats,
             "scoring_time": self.scoring_time,
             "planning_time": self.planning_time,
             "skeleton_time": self.skeleton_time,
-            "problem_file_path": self.problem_file_path
+            "problem_file_path": self.problem_file_path,
+            "solution": self.solutions[-1].plan.action_plan if self.solutions else None
         }
         with open(jsonpath, "w") as stream:
             json.dump(data, stream, indent = 4, sort_keys = True, cls=ComplexEncoder)
